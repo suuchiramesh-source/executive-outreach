@@ -9,7 +9,8 @@
     "dev:server": "node --watch server/index.js",
     "build": "vite build",
     "start": "node server/index.js",
-    "replit": "npm run build && npm start"
+    "replit": "npm run build && npm start",
+    "deploy": "bash deploy.sh"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",

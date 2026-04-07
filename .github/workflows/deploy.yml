@@ -1,0 +1,17 @@
+name: Deploy to Replit
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Replit deploy
+        run: |
+          curl -s -X POST "${{ secrets.REPLIT_DEPLOY_HOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            --max-time 30
+          echo "Replit deploy hook triggered"
