@@ -117,7 +117,14 @@ function getSecondaryContacts(allCandidates, primaryNames) {
  * Hunter "risky" → amber "risky"
  * Otherwise → grey "unverified"
  */
-function EmailVerifyBadge({ email, apolloVerified, hunterResults }) {
+function EmailVerifyBadge({ email, apolloVerified, hunterResults, domainMismatch }) {
+  if (domainMismatch) {
+    return (
+      <span style={{ color: '#FBBF24', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        ⚠ domain mismatch
+      </span>
+    );
+  }
   if (apolloVerified) {
     return (
       <span style={{ color: '#C8D943', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -551,7 +558,8 @@ export default function ContactCard({ account, contact, salesforceSignal, active
           {filteredSecondary.map((c, i) => {
             const hunterStatus = c.email ? hunterResults[c.email] : null;
             const isVerifiedByHunter = hunterStatus === 'deliverable';
-            const isClickable = c.email && (c.verified || isVerifiedByHunter);
+            const hasDomainMismatch = !!c.domainMismatch;
+            const isClickable = c.email && !hasDomainMismatch && (c.verified || isVerifiedByHunter);
             const isActive = activeContactEmail && c.email === activeContactEmail;
             return (
               <div
@@ -635,7 +643,7 @@ export default function ContactCard({ account, contact, salesforceSignal, active
                 )}
 
                 {/* Email verified indicator (Apollo + Hunter) */}
-                <EmailVerifyBadge email={c.email} apolloVerified={c.verified} hunterResults={hunterResults} />
+                <EmailVerifyBadge email={c.email} apolloVerified={c.verified} hunterResults={hunterResults} domainMismatch={c.domainMismatch} />
               </div>
             );
           })}

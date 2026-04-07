@@ -48,6 +48,34 @@ function getTier(employeeCount) {
   return 5;
 }
 
+// ── Email domain root validation ───────────────────────────────────
+function getEmailRoot(email) {
+  if (!email || !email.includes('@')) return null;
+  const domain = email.split('@')[1] || '';
+  const root = domain.split('.')[0];
+  return root.toLowerCase() || null;
+}
+
+function findCompanyRoot(people) {
+  const rootCounts = {};
+  for (const person of people) {
+    const email = person.email || '';
+    const root = getEmailRoot(email);
+    if (root) {
+      rootCounts[root] = (rootCounts[root] || 0) + 1;
+    }
+  }
+  let bestRoot = null;
+  let bestCount = 0;
+  for (const [root, count] of Object.entries(rootCounts)) {
+    if (count > bestCount) {
+      bestRoot = root;
+      bestCount = count;
+    }
+  }
+  return bestRoot;
+}
+
 // ── EA/admin titles excluded from primary selection at ALL tiers ──
 const EA_ADMIN_EXCLUSIONS = [
   'executive assistant', 'executive admin', 'business administration to',
@@ -402,6 +430,22 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     });
     console.log(`[Apollo] Primary pool after exclusion: ${seniorPeople.length} → ${primaryPool.length}`);
 
+    // Step A2: Domain root validation — exclude contacts with mismatched email domains
+    const companyRoot = findCompanyRoot(seniorPeople);
+    if (companyRoot && seniorPeople.length > 1) {
+      const beforeDomain = primaryPool.length;
+      primaryPool = primaryPool.filter((person) => {
+        const root = getEmailRoot(person.email);
+        if (!root) return true; // no email — keep in pool
+        if (root === companyRoot) return true;
+        console.log(`[Apollo] DOMAIN MISMATCH (primary): ${person.first_name || ''} ${person.last_name || person.last_name_obfuscated || ''} — email root "${root}" != company root "${companyRoot}"`);
+        return false;
+      });
+      if (beforeDomain !== primaryPool.length) {
+        console.log(`[Apollo] Domain filter: ${beforeDomain} → ${primaryPool.length} (company root: "${companyRoot}")`);
+      }
+    }
+
     // Step B: Score and select primary per product
     const productContacts = [];
     const usedNames = new Set();
@@ -502,6 +546,17 @@ export async function enrichContact(companyName, products, anchorContact, totalA
       globalCandidates.slice(0, 15),
       org?.website_url
     );
+    // Flag domain mismatches on revealed candidates
+    if (companyRoot && allCandidates.length > 1) {
+      for (const c of allCandidates) {
+        const root = getEmailRoot(c.email);
+        if (root && root !== companyRoot) {
+          c.domainMismatch = true;
+          c.verified = false; // override Apollo verified flag
+          console.log(`[Apollo] DOMAIN MISMATCH (secondary): ${c.name} — email root "${root}" != "${companyRoot}"`);
+        }
+      }
+    }
     console.log(`[Apollo] allCandidates after reveal: ${allCandidates.length} contacts`);
 
     // Only show "no qualified" if Apollo returned zero contacts total
