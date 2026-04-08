@@ -678,6 +678,72 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Normalize an organization name for comparison.
+ * Strips parenthetical suffixes, legal suffixes, lowercases, and trims.
+ */
+function normalizeOrgName(name) {
+  let n = (name || '')
+    .replace(/\s*\([^)]*\)/g, '')   // strip all parentheticals: "(EA)", "(US)", "(Inc)"
+    .replace(/[.,]/g, ' ')          // dots/commas → spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Iteratively strip trailing legal suffixes
+  const suffixes = /\s+(Inc|Incorporated|Corp|Corporation|LLC|Ltd|Limited|Co|Company|Group|Holdings|Holding|Plc|SA|AG|GmbH|NV|BV|HQ|Headquarters|Americas|America|International|Intl|Pty)\s*$/i;
+  let prev;
+  do { prev = n; n = n.replace(suffixes, '').trim(); } while (n !== prev);
+  return n.toLowerCase();
+}
+
+/**
+ * Check if two normalized org names match.
+ * Uses word-boundary containment in both directions to prevent
+ * false positives like "sap" matching "sapporo".
+ */
+function orgNameMatches(normAccount, normOrg) {
+  if (!normAccount || !normOrg) return false;
+  if (normAccount === normOrg) return true;
+  try {
+    const acctRe = new RegExp(`\\b${escapeRegex(normAccount)}\\b`);
+    if (acctRe.test(normOrg)) return true;
+    const orgRe = new RegExp(`\\b${escapeRegex(normOrg)}\\b`);
+    if (orgRe.test(normAccount)) return true;
+  } catch { /* regex construction failed — fall back to exact match only */ }
+  return false;
+}
+
+/**
+ * Filter Apollo people by org name with fallback for short results.
+ */
+function filterPeopleByOrg(people, companyName, label) {
+  const normAccount = normalizeOrgName(companyName);
+  const rawCount = people.length;
+
+  let filtered = people.filter(p => {
+    const normOrg = normalizeOrgName(p.organization?.name);
+    return orgNameMatches(normAccount, normOrg);
+  });
+
+  console.log(`[Apollo] ${label || 'Org'} filter: ${rawCount} → ${filtered.length} for "${normAccount}"`);
+
+  // Fallback: if <3 remain and raw had 10+, relax to first significant word
+  if (filtered.length < 3 && rawCount >= 10) {
+    const skipWords = new Set(['the', 'and', 'of', 'for', 'in', 'at', 'by', 'to', 'a', 'an']);
+    const firstWord = normAccount.split(/\s+/).find(w => w.length >= 4 && !skipWords.has(w));
+    if (firstWord) {
+      const wordRe = new RegExp(`\\b${escapeRegex(firstWord)}\\b`);
+      const relaxed = people.filter(p => {
+        const normOrg = normalizeOrgName(p.organization?.name);
+        return wordRe.test(normOrg);
+      });
+      console.log(`[Apollo] Org filter FALLBACK: "${normAccount}" → keyword "${firstWord}" (${filtered.length} → ${relaxed.length} contacts)`);
+      filtered = relaxed;
+    }
+  }
+
+  return filtered;
+}
+
 // ── Apollo API helpers ──────────────────────────────────────────────
 
 async function revealPerson(apiKey, personId) {
@@ -921,14 +987,7 @@ async function searchFunctionalContacts(apiKey, companyName, orgId, products) {
     const data = await res.json();
     let people = data.people || [];
 
-    // Apply same company name filtering as searchSeniorPeople
-    const normCompany = companyName.toLowerCase().replace(/[.,\s]+(inc|corp|corporation|ltd|llc|plc|company|co)\.?$/i, '').trim();
-    people = people.filter((p) => {
-      const pOrg = (p.organization?.name || '').toLowerCase().replace(/[.,\s]+(inc|corp|corporation|ltd|llc|plc|company|co)\.?$/i, '').trim();
-      if (pOrg === normCompany) return true;
-      const regex = new RegExp(`^${escapeRegex(normCompany)}(\\s*[,.]|$)`, 'i');
-      return regex.test(pOrg);
-    });
+    people = filterPeopleByOrg(people, companyName, 'Call 2');
 
     // Filter out non-person entries
     people = people.filter((p) => {
@@ -983,28 +1042,11 @@ async function searchSeniorPeople(apiKey, companyName, orgId) {
   const data = await res.json();
   let people = data.people || [];
 
-  // Filter out people from wrong companies — STRICT matching
-  // "Intuit Salud" must NOT match "Intuit" — only exact match or known patterns
-  const normCompany = companyName.toLowerCase().replace(/[.,\s]+(inc|corp|corporation|ltd|llc|plc|company|co)\.?$/i, '').trim();
-  console.log(`[Apollo] Raw people search returned ${people.length} results, filtering for "${normCompany}"`);
+  console.log(`[Apollo] Raw people search returned ${people.length} results for "${companyName}"`);
   if (people.length > 0) {
     console.log(`[Apollo] Sample orgs:`, people.slice(0, 5).map(p => p.organization?.name || 'N/A'));
   }
-  people = people.filter((p) => {
-    const rawOrg = (p.organization?.name || '');
-    const pOrg = rawOrg.toLowerCase().replace(/[.,\s]+(inc|corp|corporation|ltd|llc|plc|company|co)\.?$/i, '').trim();
-    // Exact match after normalization
-    if (pOrg === normCompany) return true;
-    // Allow if org is "<company> <division>" only if the next char after company name
-    // is NOT a letter (i.e. it's a space, comma, dash, or end of string)
-    // This prevents "Intuit Salud" from matching "Intuit" but allows "Intuit, Inc."
-    // Actually: require the org name to EQUAL the company name. Period.
-    // Exception: company is a substring AND the org name contains it as a standalone word
-    // Use word boundary check
-    const regex = new RegExp(`^${escapeRegex(normCompany)}(\\s*[,.]|$)`, 'i');
-    return regex.test(pOrg);
-  });
-  console.log(`[Apollo] After org-name filter: ${people.length} people at "${normCompany}"`);
+  people = filterPeopleByOrg(people, companyName, 'Call 1');
 
   // Filter out entries that look like company names or bad data
   people = people.filter((p) => {
