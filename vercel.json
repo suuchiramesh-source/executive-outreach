@@ -1,0 +1,21 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/accounts/*.js": {
+      "maxDuration": 60
+    },
+    "api/enrich.js": {
+      "maxDuration": 60
+    },
+    "api/verify-emails.js": {
+      "maxDuration": 60
+    },
+    "api/create-draft.js": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}
