@@ -564,23 +564,9 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     }
     console.log(`[Apollo] allCandidates after reveal: ${allCandidates.length} contacts`);
 
-    // ── DEBUG: EA-specific logging ──
+    // ── Collect debug data for EA investigation ──
     const isEADebug = companyName.toLowerCase().includes('electronic arts');
-    if (isEADebug) {
-      console.log(`[EA-DEBUG] ===== ELECTRONIC ARTS DEBUG START =====`);
-      console.log(`[EA-DEBUG] Tier: ${tier} (${tierLabel}), Employees: ${employeeCount}`);
-      console.log(`[EA-DEBUG] Call 1 (senior) returned: ${seniorPeople.length} contacts`);
-      seniorPeople.forEach((p, i) => console.log(`[EA-DEBUG]   Call1[${i}]: ${p.first_name} ${p.last_name || p.last_name_obfuscated} — "${p.title}" (seniority=${getSeniority(p.title)})`));
-      console.log(`[EA-DEBUG] Call 2 (functional) returned: ${functionalPeople.length} contacts`);
-      functionalPeople.forEach((p, i) => console.log(`[EA-DEBUG]   Call2[${i}]: ${p.first_name} ${p.last_name || p.last_name_obfuscated} — "${p.title}"`));
-      console.log(`[EA-DEBUG] Merged candidates: ${mergedCandidates.length}`);
-      console.log(`[EA-DEBUG] Top 15 scored (sent to reveal):`);
-      globalCandidates.slice(0, 15).forEach((p, i) => console.log(`[EA-DEBUG]   Scored[${i}]: ${p.first_name} ${p.last_name || p.last_name_obfuscated} — "${p.title}" score=${p.score} product=${p.matchedProduct}`));
-      console.log(`[EA-DEBUG] After reveal: ${allCandidates.length} candidates`);
-      allCandidates.forEach((c, i) => console.log(`[EA-DEBUG]   Revealed[${i}]: ${c.name} — "${c.title}" email=${c.email ? 'yes' : 'no'} verified=${c.verified} score=${c.score}`));
-      console.log(`[EA-DEBUG] productContacts (primary): ${productContacts.length}`);
-      productContacts.forEach((pc) => console.log(`[EA-DEBUG]   Primary: ${pc.fullName} — "${pc.title}" (${pc.products.join(',')})`));
-    }
+    const _debugBeforeFilter = isEADebug ? allCandidates.map(c => ({ name: c.name, title: c.title, email: !!c.email, verified: c.verified, score: c.score })) : null;
 
     // ── Post-merge fallback: if still no primary but we have candidates, pick one ──
     if (productContacts.length === 0 && allCandidates.length > 0) {
@@ -619,23 +605,32 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     // Sort by seniority: EVP/SVP → VP → Director/Head → others
     filteredSecondary.sort((a, b) => getSeniority(b.title) - getSeniority(a.title));
 
-    if (isEADebug) {
-      console.log(`[EA-DEBUG] Secondary filtering:`);
-      console.log(`[EA-DEBUG]   Primary names removed: [${[...primaryNames].join(', ')}]`);
-      console.log(`[EA-DEBUG]   After removing primary: ${allCandidates.filter(c => !primaryNames.has(c.name?.toLowerCase())).length} candidates`);
-      console.log(`[EA-DEBUG]   Tier ${tier} secondary exclusions: [${secExclusions.join(', ')}]`);
-      const beforeExclusion = allCandidates.filter(c => !primaryNames.has(c.name?.toLowerCase()));
-      beforeExclusion.forEach((c) => {
-        const t = (c.title || '').toLowerCase();
-        const excluded = secExclusions.some(ex => t.includes(ex));
-        if (excluded) console.log(`[EA-DEBUG]   EXCLUDED from secondary: ${c.name} — "${c.title}"`);
-      });
-      console.log(`[EA-DEBUG]   Final secondary list: ${filteredSecondary.length} contacts`);
-      filteredSecondary.forEach((c, i) => console.log(`[EA-DEBUG]   Secondary[${i}]: ${c.name} — "${c.title}" seniority=${getSeniority(c.title)} email=${c.email ? 'yes' : 'no'} verified=${c.verified}`));
-      console.log(`[EA-DEBUG] ===== ELECTRONIC ARTS DEBUG END =====`);
-    }
-
     allCandidates = filteredSecondary;
+
+    // Attach debug data for EA investigation (logged in api/enrich.js)
+    if (isEADebug) {
+      const _debugExcluded = (_debugBeforeFilter || []).filter(c => {
+        const inFinal = filteredSecondary.some(f => f.name?.toLowerCase() === c.name?.toLowerCase());
+        const isPrimary = primaryNames.has(c.name?.toLowerCase());
+        return !inFinal && !isPrimary;
+      });
+      // Will be attached to the return object below
+      // Store on a closure variable so both return paths can use it
+      var _eaDebug = {
+        tier, tierLabel, employeeCount,
+        call1Count: seniorPeople.length,
+        call1: seniorPeople.map(p => ({ name: `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim(), title: p.title, seniority: getSeniority(p.title) })),
+        call2Count: functionalPeople.length,
+        call2: functionalPeople.map(p => ({ name: `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim(), title: p.title })),
+        mergedCount: mergedCandidates.length,
+        revealedBeforeFilter: _debugBeforeFilter,
+        primaryNames: [...primaryNames],
+        secondaryExclusions: secExclusions,
+        excludedFromSecondary: _debugExcluded,
+        finalSecondaryCount: filteredSecondary.length,
+        finalSecondary: filteredSecondary.map(c => ({ name: c.name, title: c.title, email: !!c.email, verified: c.verified })),
+      };
+    }
 
     // Only show "no qualified" if Apollo returned zero contacts total
     if (productContacts.length === 0 && mergedCandidates.length === 0) {
@@ -648,6 +643,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
         knownPOC: knownContact, allCandidates,
         productContacts: [], employeeCount, tier, tierLabel,
         noQualifiedContact: true,
+        _eaDebug: typeof _eaDebug !== 'undefined' ? _eaDebug : undefined,
       };
     }
 
@@ -670,6 +666,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
       employeeCount,
       tier,
       tierLabel,
+      _eaDebug: typeof _eaDebug !== 'undefined' ? _eaDebug : undefined,
     };
   } catch (err) {
     console.error('[Apollo] Enrichment error:', err.message);
