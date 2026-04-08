@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { requireAuth } from './_lib/session.js';
 
 const SENDER_EMAIL = process.env.SENDER_EMAIL || 'suuchi@ignitetech.com';
 
@@ -18,6 +19,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  const user = requireAuth(req, res);
+  if (!user) return;
 
   try {
     const { to, subject, body } = req.body;

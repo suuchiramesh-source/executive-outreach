@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import AccountList from './components/AccountList';
 import ContactCard from './components/ContactCard';
 import EmailDraft from './components/EmailDraft';
@@ -6,85 +6,138 @@ import EmailDraft from './components/EmailDraft';
 const PRODUCT_FILTERS = ['All', 'Care', 'Community', 'Marketing'];
 const STATUS_FILTERS = ['All', 'Active', 'Partial'];
 
-// ── Password Gate ──────────────────────────────────────────────────
-function PasswordGate({ onAuth }) {
-  const [password, setPassword] = useState('');
+// Injected at build time from GOOGLE_CLIENT_ID env var (see vite.config.js)
+// eslint-disable-next-line no-undef
+const GOOGLE_CLIENT_ID = __GOOGLE_CLIENT_ID__;
+
+// ── Authenticated fetch wrapper ───────────────────────────────────
+function authFetch(url, options = {}) {
+  const token = localStorage.getItem('session_token');
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+// ── Google Sign-In Gate ───────────────────────────────────────────
+function GoogleSignIn({ onAuth }) {
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
+  const btnRef = useRef(null);
+  const onAuthRef = useRef(onAuth);
+  onAuthRef.current = onAuth;
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setChecking(true);
-    setError('');
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        sessionStorage.setItem('app_auth', 'true');
-        onAuth();
-      } else {
-        setError('Incorrect password');
-        setPassword('');
+  useEffect(() => {
+    let cancelled = false;
+
+    function tryInit() {
+      if (cancelled) return;
+      if (!window.google?.accounts?.id) {
+        setTimeout(tryInit, 100);
+        return;
       }
-    } catch {
-      setError('Connection error');
-    } finally {
-      setChecking(false);
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response) => {
+          setChecking(true);
+          setError('');
+          try {
+            const res = await fetch('/api/auth', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ credential: response.credential }),
+            });
+            const data = await res.json();
+            if (data.success) {
+              localStorage.setItem('session_token', data.token);
+              localStorage.setItem('session_user', JSON.stringify(data.user));
+              onAuthRef.current(data.user);
+            } else {
+              setError(data.error || 'Sign-in failed');
+            }
+          } catch {
+            setError('Connection error');
+          } finally {
+            setChecking(false);
+          }
+        },
+      });
+      if (btnRef.current) {
+        window.google.accounts.id.renderButton(btnRef.current, {
+          theme: 'filled_blue',
+          size: 'large',
+          text: 'signin_with',
+          width: 280,
+        });
+      }
     }
-  }
+
+    tryInit();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       width: '100vw', height: '100vh', background: '#0D4B5E',
     }}>
-      <form onSubmit={handleSubmit} style={{
+      <div style={{
         background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.15)',
         borderRadius: 12, padding: '48px 40px', width: 360, textAlign: 'center',
       }}>
         <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Executive Outreach</h1>
         <div style={{ color: '#CBD5E1', fontSize: 14, marginBottom: 28 }}>IgniteTech / Khoros</div>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Enter password"
-          autoFocus
-          style={{
-            width: '100%', height: 44, padding: '0 16px', borderRadius: 8,
-            border: '1px solid rgba(255,255,255,.2)', background: 'rgba(255,255,255,.08)',
-            color: '#fff', fontSize: 15, outline: 'none', fontFamily: 'inherit',
-            marginBottom: 12,
-          }}
-        />
-        {error && <div style={{ color: '#F87171', fontSize: 13, marginBottom: 8 }}>{error}</div>}
-        <button type="submit" disabled={checking} style={{
-          width: '100%', height: 44, borderRadius: 8, border: 'none',
-          background: '#00A99D', color: '#fff', fontSize: 15, fontWeight: 600,
-          cursor: 'pointer', fontFamily: 'inherit', opacity: checking ? 0.6 : 1,
-        }}>
-          {checking ? 'Checking...' : 'Enter'}
-        </button>
-      </form>
+
+        {checking ? (
+          <div style={{ color: '#CBD5E1', fontSize: 14 }}>Signing in...</div>
+        ) : (
+          <div ref={btnRef} style={{ display: 'flex', justifyContent: 'center' }} />
+        )}
+
+        {error && <div style={{ color: '#F87171', fontSize: 13, marginTop: 12 }}>{error}</div>}
+      </div>
     </div>
   );
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem('app_auth') === 'true');
+  const [authed, setAuthed] = useState(() => {
+    const token = localStorage.getItem('session_token');
+    if (!token) return false;
+    try {
+      let base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) base64 += '=';
+      const payload = JSON.parse(atob(base64));
+      return payload.exp > Date.now() / 1000;
+    } catch {
+      return false;
+    }
+  });
 
-  if (!authed) {
-    return <PasswordGate onAuth={() => setAuthed(true)} />;
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('session_user')); }
+    catch { return null; }
+  });
+
+  function handleSignOut() {
+    localStorage.removeItem('session_token');
+    localStorage.removeItem('session_user');
+    window.google?.accounts?.id?.disableAutoSelect();
+    setAuthed(false);
+    setUser(null);
   }
 
-  return <MainApp />;
+  if (!authed) {
+    return <GoogleSignIn onAuth={(u) => { setAuthed(true); setUser(u); }} />;
+  }
+
+  return <MainApp user={user} onSignOut={handleSignOut} />;
 }
 
-function MainApp() {
+function MainApp({ user, onSignOut }) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -111,7 +164,7 @@ function MainApp() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/accounts');
+      const res = await authFetch('/api/accounts');
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setAccounts(data);
@@ -126,7 +179,7 @@ function MainApp() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/accounts/refresh', { method: 'POST' });
+      const res = await authFetch('/api/accounts/refresh', { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setAccounts(data);
@@ -193,7 +246,7 @@ function MainApp() {
 
     setEnriching(true);
     try {
-      const res = await fetch('/api/enrich', {
+      const res = await authFetch('/api/enrich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -206,7 +259,7 @@ function MainApp() {
       });
       const data = await res.json();
 
-      const draftRes = await fetch('/api/draft', {
+      const draftRes = await authFetch('/api/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -241,7 +294,7 @@ function MainApp() {
 
       if (unverifiedEmails.length > 0) {
         setVerifying(true);
-        fetch('/api/verify-emails', {
+        authFetch('/api/verify-emails', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ emails: unverifiedEmails }),
@@ -316,7 +369,21 @@ IgniteTech / Khoros`;
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <h1>Executive Outreach</h1>
-              <div className="subtitle">IgniteTech / Khoros</div>
+              <div className="subtitle">
+                IgniteTech / Khoros
+                {user && (
+                  <>
+                    {' · '}
+                    <span
+                      onClick={onSignOut}
+                      style={{ cursor: 'pointer', opacity: 0.6 }}
+                      title={user.email}
+                    >
+                      Sign out
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
             <button
               className={`refresh-btn ${loading ? 'spinning' : ''}`}
