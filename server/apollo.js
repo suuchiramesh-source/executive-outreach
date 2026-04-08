@@ -33,18 +33,18 @@ const PRODUCT_TITLE_MAP = {
 
 // ── 5-Tier Company Sizing System ───────────────────────────────────
 const TIERS = {
-  1: { min: 40000, label: 'Global Giant' },
-  2: { min: 10001, max: 39999, label: 'Large Enterprise' },
-  3: { min: 1001, max: 10000, label: 'Mid-Market' },
-  4: { min: 101, max: 1000, label: 'Growth' },
-  5: { min: 0, max: 100, label: 'Small Business' },
+  1: { min: 50000, label: 'Global Giant' },
+  2: { min: 10000, max: 49999, label: 'Large Enterprise' },
+  3: { min: 1000, max: 9999, label: 'Mid-Market' },
+  4: { min: 100, max: 999, label: 'Growth' },
+  5: { min: 0, max: 99, label: 'Small Business' },
 };
 
 function getTier(employeeCount) {
-  if (employeeCount >= 40000) return 1;
-  if (employeeCount > 10000) return 2;
-  if (employeeCount > 1000) return 3;
-  if (employeeCount > 100) return 4;
+  if (employeeCount >= 50000) return 1;
+  if (employeeCount >= 10000) return 2;
+  if (employeeCount >= 1000) return 3;
+  if (employeeCount >= 100) return 4;
   return 5;
 }
 
@@ -90,18 +90,23 @@ const TIER_EXCLUSIONS = {
     'chief executive', 'ceo', 'chair', 'president', 'chief financial', 'cfo',
     'chief operating officer', 'coo', 'general counsel', 'chief legal',
     'chief marketing officer', 'cmo', 'chief customer officer', 'cco',
-    'chief experience officer', 'chief digital officer', 'chief technology', 'cto',
+    'chief digital officer', 'chief technology', 'cto',
     'founder', 'co-founder',
   ],
   2: [
     'chief executive', 'ceo', 'chair', 'president', 'chief financial', 'cfo',
     'general counsel', 'chief legal', 'founder', 'co-founder',
   ],
-  3: [
-    'chief executive', 'ceo', 'founder', 'co-founder',
-  ],
+  3: [], // no exclusions
   4: [], // no exclusions
   5: [], // no exclusions
+};
+
+// Secondary list exclusions (less aggressive than primary)
+const SECONDARY_EXCLUSIONS = {
+  1: ['ceo', 'chief executive', 'chair', 'chairman', 'founder', 'co-founder', 'cfo', 'chief financial'],
+  2: ['ceo', 'chief executive', 'chair', 'chairman', 'founder', 'co-founder'],
+  // Tiers 3-5: no exclusions
 };
 
 // ── Target title priority by tier and product ──────────────────────
@@ -541,7 +546,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     });
     globalCandidates.sort((a, b) => b.score - a.score);
 
-    const allCandidates = await revealCandidates(
+    let allCandidates = await revealCandidates(
       apiKey,
       globalCandidates.slice(0, 15),
       org?.website_url
@@ -559,8 +564,46 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     }
     console.log(`[Apollo] allCandidates after reveal: ${allCandidates.length} contacts`);
 
+    // ── Post-merge fallback: if still no primary but we have candidates, pick one ──
+    if (productContacts.length === 0 && allCandidates.length > 0) {
+      const fb = allCandidates[0];
+      console.log(`[Apollo] Post-merge fallback primary: ${fb.name} — ${fb.title}`);
+      productContacts.push({
+        product: products[0] || null, products: [...products],
+        fullName: fb.name,
+        title: fb.title || 'Executive',
+        email: fb.email || null,
+        linkedinUrl: fb.linkedinUrl || null,
+        source: 'apollo',
+        confidence: fb.email ? 'medium' : 'low',
+      });
+    }
+
+    // ── Secondary list: tier-based filtering ──
+    // Remove primary contacts from secondary list
+    const primaryNames = new Set(productContacts.map(pc => pc.fullName?.toLowerCase()));
+    let filteredSecondary = allCandidates.filter(c => !primaryNames.has(c.name?.toLowerCase()));
+
+    // Apply tier-specific secondary exclusions
+    const secExclusions = SECONDARY_EXCLUSIONS[tier] || [];
+    if (secExclusions.length > 0) {
+      const afterExclusion = filteredSecondary.filter(c => {
+        const t = (c.title || '').toLowerCase();
+        return !secExclusions.some(ex => t.includes(ex));
+      });
+      // If after filtering <2 remain, relax filters — show all except primary
+      if (afterExclusion.length >= 2 || filteredSecondary.length < 2) {
+        filteredSecondary = afterExclusion;
+      }
+      // else: keep filteredSecondary unfiltered (already has primary removed)
+    }
+
+    // Sort by seniority: EVP/SVP → VP → Director/Head → others
+    filteredSecondary.sort((a, b) => getSeniority(b.title) - getSeniority(a.title));
+    allCandidates = filteredSecondary;
+
     // Only show "no qualified" if Apollo returned zero contacts total
-    if (productContacts.length === 0 && seniorPeople.length === 0) {
+    if (productContacts.length === 0 && mergedCandidates.length === 0) {
       console.log(`[Apollo] No contacts at all for "${companyName}"`);
       return {
         fullName: 'No qualified contact found',
