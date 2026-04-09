@@ -15,6 +15,14 @@
       "maxDuration": 30
     }
   },
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "executive-outreach.vercel.app" }],
+      "destination": "https://executive-intelligence.vercel.app/$1",
+      "statusCode": 301
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

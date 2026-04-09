@@ -88,7 +88,7 @@ function GoogleSignIn({ onAuth }) {
         background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.15)',
         borderRadius: 12, padding: '48px 40px', width: 360, textAlign: 'center',
       }}>
-        <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Executive Outreach</h1>
+        <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Executive Intelligence</h1>
         <div style={{ color: '#CBD5E1', fontSize: 14, marginBottom: 28 }}>IgniteTech / Khoros</div>
 
         {checking ? (
@@ -368,7 +368,7 @@ IgniteTech / Khoros`;
         <div className="sidebar-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <h1>Executive Outreach</h1>
+              <h1>Executive Intelligence</h1>
               <div className="subtitle">
                 IgniteTech / Khoros
                 {user && (
