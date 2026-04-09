@@ -48,6 +48,76 @@ function getTier(employeeCount) {
   return 5;
 }
 
+// ── Country suffix detection for subsidiary accounts ──────────────
+const COUNTRY_MAP = {
+  'united kingdom': 'United Kingdom', 'south africa': 'South Africa',
+  'hong kong': 'Hong Kong', 'new zealand': 'New Zealand',
+  'south korea': 'South Korea', 'czech republic': 'Czech Republic',
+  'saudi arabia': 'Saudi Arabia', 'middle east': 'Middle East',
+  'latin america': 'Latin America', 'asia pacific': 'Asia Pacific',
+  'deutsche telekom': null, // brand, not a country
+  'germany': 'Germany', 'uk': 'United Kingdom', 'france': 'France',
+  'italy': 'Italy', 'spain': 'Spain', 'australia': 'Australia',
+  'canada': 'Canada', 'brazil': 'Brazil', 'japan': 'Japan',
+  'india': 'India', 'china': 'China', 'mexico': 'Mexico',
+  'netherlands': 'Netherlands', 'belgium': 'Belgium', 'switzerland': 'Switzerland',
+  'austria': 'Austria', 'sweden': 'Sweden', 'norway': 'Norway',
+  'denmark': 'Denmark', 'finland': 'Finland', 'ireland': 'Ireland',
+  'poland': 'Poland', 'portugal': 'Portugal', 'singapore': 'Singapore',
+  'taiwan': 'Taiwan', 'thailand': 'Thailand', 'indonesia': 'Indonesia',
+  'malaysia': 'Malaysia', 'philippines': 'Philippines', 'colombia': 'Colombia',
+  'argentina': 'Argentina', 'chile': 'Chile', 'turkey': 'Turkey',
+  'israel': 'Israel', 'russia': 'Russia', 'romania': 'Romania',
+  'hungary': 'Hungary', 'greece': 'Greece', 'korea': 'South Korea',
+  'usa': 'United States', 'emea': 'EMEA', 'apac': 'Asia Pacific',
+  'latam': 'Latin America', 'americas': 'Americas', 'europe': 'Europe',
+};
+
+function detectCountrySuffix(companyName) {
+  const lower = companyName.toLowerCase().trim()
+    .replace(/[.,\s]+(inc|llc|corp|ltd|gmbh|plc)\.?\s*$/i, '').trim();
+  const sorted = Object.keys(COUNTRY_MAP).sort((a, b) => b.length - a.length);
+  for (const suffix of sorted) {
+    if (lower.endsWith(suffix) && COUNTRY_MAP[suffix]) {
+      const prefix = lower.slice(0, -suffix.length).trim().replace(/[-,\s]+$/, '');
+      if (prefix.length >= 2) {
+        return {
+          country: COUNTRY_MAP[suffix],
+          countryKey: suffix,
+          parentBrand: companyName.slice(0, companyName.length - suffix.length).trim().replace(/[-,\s]+$/, ''),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Filter contacts by country — remove contacts whose org name contains a DIFFERENT country.
+ * Returns { filtered, relaxed } where relaxed=true if country filter was dropped due to <3 results.
+ */
+function filterByCountry(people, countryInfo) {
+  if (!countryInfo) return { filtered: people, relaxed: false };
+  const targetKey = countryInfo.countryKey;
+  const otherCountryKeys = Object.keys(COUNTRY_MAP)
+    .filter(k => k !== targetKey && k.length >= 3 && COUNTRY_MAP[k]);
+  const countryFiltered = people.filter(p => {
+    const orgName = (p.organization?.name || '').toLowerCase();
+    for (const otherKey of otherCountryKeys) {
+      if (orgName.includes(otherKey)) return false;
+    }
+    return true;
+  });
+  if (countryFiltered.length < 3 && people.length >= 3) {
+    console.log(`[Apollo] Country filter relaxed: "${countryInfo.country}" left ${countryFiltered.length}/${people.length}, showing all (global)`);
+    return { filtered: people, relaxed: true };
+  }
+  if (countryFiltered.length < people.length) {
+    console.log(`[Apollo] Country filter "${countryInfo.country}": ${people.length} → ${countryFiltered.length}`);
+  }
+  return { filtered: countryFiltered, relaxed: false };
+}
+
 // ── Email domain root validation ───────────────────────────────────
 function getEmailRoot(email) {
   if (!email || !email.includes('@')) return null;
@@ -323,7 +393,14 @@ export async function enrichContact(companyName, products, anchorContact, totalA
       .replace(/\s+/g, ' ')
       .trim();
 
-    let seniorPeople = await searchSeniorPeople(apiKey, cleanName, orgId);
+    // Detect country suffix for subsidiary accounts
+    const countryInfo = detectCountrySuffix(companyName);
+    let globalContacts = false;
+    if (countryInfo) {
+      console.log(`[Apollo] Country detected: "${countryInfo.country}" (parent: "${countryInfo.parentBrand}")`);
+    }
+
+    let seniorPeople = await searchSeniorPeople(apiKey, cleanName, orgId, countryInfo?.country);
 
     // Fallback search variants if initial search returns 0
     if (seniorPeople.length === 0) {
@@ -333,7 +410,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
         .replace(/\s+/g, ' ').trim();
       if (stripped && stripped !== cleanName) {
         console.log(`[Apollo] Retry variant 1 (stripped): "${stripped}"`);
-        seniorPeople = await searchSeniorPeople(apiKey, stripped, orgId);
+        seniorPeople = await searchSeniorPeople(apiKey, stripped, orgId, countryInfo?.country);
       }
 
       // Variant 2: first 2 words only
@@ -341,7 +418,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
         const first2 = cleanName.split(/\s+/).slice(0, 2).join(' ');
         if (first2 && first2 !== stripped && first2 !== cleanName) {
           console.log(`[Apollo] Retry variant 2 (first 2 words): "${first2}"`);
-          seniorPeople = await searchSeniorPeople(apiKey, first2, orgId);
+          seniorPeople = await searchSeniorPeople(apiKey, first2, orgId, countryInfo?.country);
         }
       }
 
@@ -352,7 +429,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
           const acronym = words.map((w) => w[0]).join('').toUpperCase();
           if (acronym.length >= 2) {
             console.log(`[Apollo] Retry variant 3 (acronym): "${acronym}"`);
-            seniorPeople = await searchSeniorPeople(apiKey, acronym, orgId);
+            seniorPeople = await searchSeniorPeople(apiKey, acronym, orgId, countryInfo?.country);
           }
         }
       }
@@ -364,9 +441,23 @@ export async function enrichContact(companyName, products, anchorContact, totalA
           words.pop();
           const shorter = words.join(' ');
           console.log(`[Apollo] Retry (shorter): "${shorter}"`);
-          seniorPeople = await searchSeniorPeople(apiKey, shorter, orgId);
+          seniorPeople = await searchSeniorPeople(apiKey, shorter, orgId, countryInfo?.country);
         }
       }
+    }
+
+    // If country filter yielded 0, retry without country
+    if (seniorPeople.length === 0 && countryInfo) {
+      console.log(`[Apollo] All country-filtered searches returned 0, retrying without country filter`);
+      seniorPeople = await searchSeniorPeople(apiKey, cleanName, orgId, null);
+      if (seniorPeople.length > 0) globalContacts = true;
+    }
+
+    // Post-hoc: filter out contacts from wrong countries by org name
+    if (countryInfo && seniorPeople.length > 0) {
+      const { filtered, relaxed } = filterByCountry(seniorPeople, countryInfo);
+      seniorPeople = filtered;
+      if (relaxed) globalContacts = true;
     }
 
     // If org search returned 0 employees (matched wrong entity), check people's org data
@@ -407,7 +498,18 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     }
 
     // ── TIER-BASED CONTACT TARGETING (rewritten from scratch) ──
-    const tier = getTier(employeeCount);
+    let tier = getTier(employeeCount);
+    // ARR-based tier floor — subsidiaries with high ARR shouldn't be low tier
+    if (totalARR > 3000000 && tier > 1) {
+      console.log(`[Apollo] ARR tier floor: Tier ${tier} → Tier 1 (ARR=$${totalARR})`);
+      tier = 1;
+    } else if (totalARR > 1000000 && tier > 2) {
+      console.log(`[Apollo] ARR tier floor: Tier ${tier} → Tier 2 (ARR=$${totalARR})`);
+      tier = 2;
+    } else if (totalARR > 300000 && tier > 3) {
+      console.log(`[Apollo] ARR tier floor: Tier ${tier} → Tier 3 (ARR=$${totalARR})`);
+      tier = 3;
+    }
     const tierLabel = TIERS[tier].label;
     const exclusions = TIER_EXCLUSIONS[tier] || [];
 
@@ -526,7 +628,12 @@ export async function enrichContact(companyName, products, anchorContact, totalA
     }
 
     // ── Call 2: Fetch functional secondary contacts ──
-    const functionalPeople = await searchFunctionalContacts(apiKey, cleanName, orgId, products);
+    let functionalPeople = await searchFunctionalContacts(apiKey, cleanName, orgId, products, countryInfo?.country);
+    if (countryInfo && functionalPeople.length > 0) {
+      const { filtered, relaxed } = filterByCountry(functionalPeople, countryInfo);
+      functionalPeople = filtered;
+      if (relaxed) globalContacts = true;
+    }
 
     // Merge Call 1 + Call 2 candidates, deduplicate by name
     const seenNames = new Set();
@@ -641,7 +748,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
         email: null, linkedinUrl: null, source: 'none', confidence: 'low',
         matchedProduct: products[0] || null,
         knownPOC: knownContact, allCandidates,
-        productContacts: [], employeeCount, tier, tierLabel,
+        productContacts: [], employeeCount, tier, tierLabel, globalContacts,
         noQualifiedContact: true,
         _eaDebug: typeof _eaDebug !== 'undefined' ? _eaDebug : undefined,
       };
@@ -665,7 +772,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
       productContacts,
       employeeCount,
       tier,
-      tierLabel,
+      tierLabel, globalContacts,
       _eaDebug: typeof _eaDebug !== 'undefined' ? _eaDebug : undefined,
     };
   } catch (err) {
@@ -956,7 +1063,7 @@ const FUNCTIONAL_TITLES = {
   ],
 };
 
-async function searchFunctionalContacts(apiKey, companyName, orgId, products) {
+async function searchFunctionalContacts(apiKey, companyName, orgId, products, country) {
   // Build combined title list from all relevant products
   const titles = [];
   for (const product of products) {
@@ -974,6 +1081,7 @@ async function searchFunctionalContacts(apiKey, companyName, orgId, products) {
     page: 1,
     per_page: 15,
   };
+  if (country) searchBody.person_locations = [country];
 
   try {
     const res = await fetch(`${APOLLO_API_BASE}/api/v1/mixed_people/api_search`, {
@@ -1012,7 +1120,7 @@ async function searchFunctionalContacts(apiKey, companyName, orgId, products) {
   }
 }
 
-async function searchSeniorPeople(apiKey, companyName, orgId) {
+async function searchSeniorPeople(apiKey, companyName, orgId, country) {
   const titles = [
     'Chief', 'CEO', 'COO', 'CMO', 'CRO', 'CCO', 'CDO', 'CFO', 'CTO',
     'President',
@@ -1022,14 +1130,13 @@ async function searchSeniorPeople(apiKey, companyName, orgId) {
     'Head of',
   ];
 
-  // Try with org ID first if available, then without if that returns nothing
-  // Search by company name (organization_ids doesn't work with api_search)
   const searchBody = {
     q_organization_name: companyName,
     person_titles: titles,
     page: 1,
     per_page: 25,
   };
+  if (country) searchBody.person_locations = [country];
 
   const res = await fetch(`${APOLLO_API_BASE}/api/v1/mixed_people/api_search`, {
     method: 'POST',
