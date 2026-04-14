@@ -44,6 +44,7 @@ export default function VisitOutreach({ authFetch }) {
   const [searched, setSearched] = useState(false);
   const [draftsProgress, setDraftsProgress] = useState(null);
   const [draftsSummary, setDraftsSummary] = useState(null);
+  const [draftErrors, setDraftErrors] = useState([]);
 
   async function handleSearch() {
     if (!location.trim()) return;
@@ -147,32 +148,52 @@ export default function VisitOutreach({ authFetch }) {
       .replace(/\{Title\}/g, contact.title || '');
   }
 
+  function handleOpenGmailCompose(contact) {
+    const subject = `Eric Vaughan is visiting — wanted to connect you both`;
+    const body = personalizeMessage(message, contact);
+    const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(contact.email || '')}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(url, '_blank');
+  }
+
   async function handleBatchDrafts() {
     const contacts = results.filter(r => selected.has(r.id));
     const withEmail = contacts.filter(c => c.email && !c.email.includes('*'));
     const skipped = contacts.filter(c => !c.email || c.email.includes('*'));
     setDraftsProgress({ current: 0, total: withEmail.length });
     setDraftsSummary(null);
+    setDraftErrors([]);
 
     let created = 0;
+    const errors = [];
     for (let i = 0; i < withEmail.length; i++) {
       const c = withEmail[i];
-      const firstName = c.name?.split(' ')[0] || '';
       const subject = `Eric Vaughan is visiting — wanted to connect you both`;
       const body = personalizeMessage(message, c);
       try {
-        await authFetch('/api/create-draft', {
+        const res = await authFetch('/api/create-draft', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ to: c.email, subject, body }),
         });
-        created++;
-      } catch {}
+        const data = await res.json();
+        if (res.ok && data.success) {
+          created++;
+          console.log(`[Draft] Created for ${c.email}: draftId=${data.draftId}`);
+        } else {
+          const errMsg = data.error || `HTTP ${res.status}`;
+          console.error(`[Draft] Failed for ${c.email}: ${errMsg}`);
+          errors.push({ name: c.name, email: c.email, error: errMsg });
+        }
+      } catch (err) {
+        console.error(`[Draft] Network error for ${c.email}:`, err);
+        errors.push({ name: c.name, email: c.email, error: err.message || 'Network error' });
+      }
       setDraftsProgress({ current: i + 1, total: withEmail.length });
     }
 
     setDraftsProgress(null);
-    setDraftsSummary({ created, skipped: skipped.map(c => c.name) });
+    setDraftErrors(errors);
+    setDraftsSummary({ created, skipped: skipped.map(c => c.name), failed: errors.length });
   }
 
   return (
@@ -320,12 +341,35 @@ export default function VisitOutreach({ authFetch }) {
                     Creating drafts... {draftsProgress.current} of {draftsProgress.total}
                   </div>
                 ) : draftsSummary ? (
-                  <div style={{ padding: '12px 16px', background: '#f0fdf4', borderRadius: 8, fontSize: 13 }}>
-                    <strong>{draftsSummary.created} draft{draftsSummary.created !== 1 ? 's' : ''} created in Gmail.</strong>
-                    {' '}
-                    <a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal-bright)' }}>
-                      Open Gmail →
-                    </a>
+                  <div style={{ padding: '12px 16px', background: draftsSummary.created > 0 ? '#f0fdf4' : 'var(--red-bg)', borderRadius: 8, fontSize: 13 }}>
+                    {draftsSummary.created > 0 && (
+                      <div>
+                        <strong>{draftsSummary.created} draft{draftsSummary.created !== 1 ? 's' : ''} created in Gmail.</strong>
+                        {' '}
+                        <a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal-bright)' }}>
+                          Open Gmail →
+                        </a>
+                      </div>
+                    )}
+                    {draftErrors.length > 0 && (
+                      <div style={{ marginTop: draftsSummary.created > 0 ? 8 : 0, color: 'var(--red)' }}>
+                        <strong>{draftErrors.length} draft{draftErrors.length !== 1 ? 's' : ''} failed:</strong>
+                        {draftErrors.map((e, i) => (
+                          <div key={i} style={{ fontSize: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span>{e.name} ({e.email}): {e.error}</span>
+                            <button
+                              onClick={() => handleOpenGmailCompose({ email: e.email, name: e.name, accountName: '', product: '', title: '' })}
+                              style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', background: 'var(--white)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                              Open in Gmail →
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {draftsSummary.created === 0 && draftErrors.length === 0 && (
+                      <div style={{ color: 'var(--text-muted)' }}>No drafts to create.</div>
+                    )}
                     {draftsSummary.skipped.length > 0 && (
                       <div style={{ marginTop: 6, color: 'var(--amber)', fontSize: 12 }}>
                         Skipped (no email): {draftsSummary.skipped.join(', ')}
@@ -363,6 +407,7 @@ export default function VisitOutreach({ authFetch }) {
                       <th style={{ padding: '8px 12px', textAlign: 'left' }}>Location</th>
                       <th style={{ padding: '8px 12px', textAlign: 'center' }}>Email</th>
                       <th style={{ padding: '8px 12px', textAlign: 'center' }}>LinkedIn</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Gmail</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -404,6 +449,18 @@ export default function VisitOutreach({ authFetch }) {
                             <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal-bright)', fontSize: 12 }}>
                               Profile
                             </a>
+                          ) : (
+                            <span style={{ color: 'var(--text-light)' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          {c.email && !c.email.includes('*') ? (
+                            <button
+                              onClick={() => handleOpenGmailCompose(c)}
+                              style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', background: 'var(--white)', cursor: 'pointer', color: 'var(--teal-bright)' }}
+                            >
+                              Compose
+                            </button>
                           ) : (
                             <span style={{ color: 'var(--text-light)' }}>—</span>
                           )}
