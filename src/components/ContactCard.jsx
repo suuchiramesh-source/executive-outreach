@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
 
+const KHOROS_SUBPRODUCTS = new Set(['Care', 'Community', 'Marketing', 'Platform', 'Unknown']);
+function isKhorosAccount(account) {
+  return account.products?.every(p => KHOROS_SUBPRODUCTS.has(p));
+}
+
 function formatARR(value) {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
@@ -300,8 +305,8 @@ export default function ContactCard({ account, contact, salesforceSignal, active
         </div>
       )}
 
-      {/* Missing anchor contact banner */}
-      {account.hasAnchorContact === false && (
+      {/* Missing anchor contact banner — Khoros only */}
+      {isKhorosAccount(account) && account.hasAnchorContact === false && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -440,8 +445,8 @@ export default function ContactCard({ account, contact, salesforceSignal, active
         </div>
       )}
 
-      {/* Known POC context */}
-      {contact.knownPOC && (
+      {/* Known POC context — Khoros only */}
+      {isKhorosAccount(account) && contact.knownPOC && (
         <div style={{
           padding: '12px 18px',
           background: 'rgba(255,255,255,.08)',

@@ -73,7 +73,19 @@ export function stripLegalSuffix(name) {
     .trim();
 }
 
+const KHOROS_SUBPRODUCTS = new Set(['Care', 'Community', 'Marketing', 'Platform', 'Unknown']);
+const EXTENDED_PRODUCT_DESC = {
+  Jive: 'enterprise intranet and internal communications',
+  Gensym: 'AI and expert systems for industrial automation',
+  Computron: 'enterprise financial management',
+  DNN: 'web content management and digital experience',
+};
+
 export function formatProductPhrase(products) {
+  const product = products[0];
+  if (EXTENDED_PRODUCT_DESC[product]) {
+    return `${product}, our ${EXTENDED_PRODUCT_DESC[product]} platform`;
+  }
   if (products.length === 1) return `the Khoros ${products[0]} platform`;
   if (products.length === 2) return `the Khoros ${products[0]} and ${products[1]} platforms`;
   return `the Khoros ${products.slice(0, -1).join(', ')}, and ${products[products.length - 1]} platforms`;
@@ -83,12 +95,14 @@ export function generateDraft(contactName, contactTitle, companyName, products) 
   const firstName = contactName.split(' ')[0];
   const cleanCompany = stripLegalSuffix(companyName);
   const platformPhrase = formatProductPhrase(products);
+  const isKhoros = products.every(p => KHOROS_SUBPRODUCTS.has(p));
+  const brandName = isKhoros ? 'Khoros' : products[0];
 
-  const subject = `${firstName} — ${cleanCompany} + Khoros, wanted to connect personally`;
+  const subject = `${firstName} — ${cleanCompany} + ${brandName}, wanted to connect personally`;
 
   const body = `Hi ${firstName},
 
-I'm Suuchi Ramesh — I lead the commercial and customer organization at IgniteTech, which now owns Khoros. I'm reaching out directly because ${cleanCompany} is one of our most important partnerships, and I'd like to use this moment to build the right executive relationship.
+I'm Suuchi Ramesh — I lead the commercial and customer organization at IgniteTech, which owns ${brandName}. I'm reaching out directly because ${cleanCompany} is one of our most important partnerships, and I'd like to use this moment to build the right executive relationship.
 
 We're making real investment in ${platformPhrase} and I'd rather you hear that from me than secondhand. I'm personally committed to making sure ${cleanCompany} gets the full picture.
 

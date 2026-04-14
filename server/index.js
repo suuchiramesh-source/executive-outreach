@@ -4,9 +4,9 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
-import { fetchARRData, fetchProductData } from './sheets.js';
+import { fetchARRData, fetchProductData, fetchExtendedProductData } from './sheets.js';
 import { matchAccounts } from './matcher.js';
-import { enrichContact } from './apollo.js';
+import { enrichContact, searchContactsByLocation } from './apollo.js';
 import { searchSalesforce } from './salesforce.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +72,31 @@ app.get('/api/accounts', async (req, res) => {
     res.json(accounts);
   } catch (err) {
     console.error('Error fetching accounts:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/accounts-extended — extended product accounts (Jive, Gensym, Computron, DNN)
+const VALID_EXTENDED = ['Jive', 'Gensym', 'Computron', 'DNN'];
+let extCache = {};
+let extCacheTs = {};
+app.get('/api/accounts-extended', async (req, res) => {
+  try {
+    const product = req.query.product;
+    if (!product || !VALID_EXTENDED.includes(product)) {
+      return res.status(400).json({ error: `Invalid product. Must be one of: ${VALID_EXTENDED.join(', ')}` });
+    }
+    const key = product.toLowerCase();
+    const refresh = req.query.refresh === '1';
+    if (!refresh && extCache[key] && Date.now() - (extCacheTs[key] || 0) < CACHE_TTL) {
+      return res.json(extCache[key]);
+    }
+    const accounts = await fetchExtendedProductData(product);
+    extCache[key] = accounts;
+    extCacheTs[key] = Date.now();
+    res.json(accounts);
+  } catch (err) {
+    console.error('Error fetching extended accounts:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -249,6 +274,21 @@ IgniteTech / Khoros`;
 
   return { subject, draft: body };
 }
+
+// ── Visit Outreach — location-based contact search ────────────────
+app.post('/api/visit-search', async (req, res) => {
+  try {
+    const { companyName, location } = req.body;
+    if (!companyName || !location) {
+      return res.status(400).json({ error: 'companyName and location are required' });
+    }
+    const contacts = await searchContactsByLocation(companyName, location);
+    res.json({ contacts });
+  } catch (err) {
+    console.error('[Visit] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── Hunter.io email verification ───────────────────────────────────
 const HUNTER_API_KEY = process.env.HUNTER_API_KEY;

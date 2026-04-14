@@ -29,6 +29,42 @@ const PRODUCT_TITLE_MAP = {
       'Head of Marketing', 'Head of Demand', 'Head of Growth',
     ],
   },
+  Jive: {
+    ideal: ['Chief People Officer', 'Chief Communications Officer', 'Chief Human Resources Officer'],
+    acceptable: [
+      'SVP Internal Communications', 'SVP HR Technology', 'SVP Digital Workplace',
+      'VP Internal Communications', 'VP HR Technology', 'VP Digital Workplace',
+      'VP Employee Experience', 'Head of Internal Communications',
+      'Head of HR Technology', 'Head of Digital Workplace',
+    ],
+  },
+  Gensym: {
+    ideal: ['Chief Technology Officer', 'VP Engineering', 'VP Operations'],
+    acceptable: [
+      'SVP Engineering', 'SVP Operations', 'SVP Manufacturing',
+      'VP Manufacturing Technology', 'VP Process Engineering',
+      'Head of Engineering', 'Head of Operations',
+      'Director Engineering', 'Director Manufacturing',
+    ],
+  },
+  Computron: {
+    ideal: ['Chief Financial Officer', 'VP Finance', 'Controller'],
+    acceptable: [
+      'Chief Accounting Officer', 'VP Financial Systems',
+      'SVP Finance', 'SVP Financial Operations',
+      'VP Accounting', 'VP Financial Planning',
+      'Head of Finance', 'Head of Financial Systems',
+    ],
+  },
+  DNN: {
+    ideal: ['Chief Digital Officer', 'VP Digital', 'Chief Technology Officer'],
+    acceptable: [
+      'VP Marketing Technology', 'VP Web Experience',
+      'SVP Digital', 'SVP Marketing Technology',
+      'VP Web Development', 'VP Digital Experience',
+      'Head of Digital', 'Head of Web Experience',
+    ],
+  },
 };
 
 // ── 5-Tier Company Sizing System ───────────────────────────────────
@@ -194,6 +230,22 @@ const TIER_TARGETS = {
       'VP Marketing Technology', 'SVP Marketing', 'VP Marketing Operations',
       'VP Growth', 'Head of Marketing Technology',
     ],
+    Jive: [
+      'VP Internal Communications', 'SVP Internal Communications', 'VP HR Technology',
+      'VP Digital Workplace', 'VP Employee Experience', 'Head of Internal Communications',
+    ],
+    Gensym: [
+      'VP Engineering', 'SVP Engineering', 'VP Operations',
+      'VP Manufacturing Technology', 'Head of Engineering',
+    ],
+    Computron: [
+      'VP Finance', 'SVP Finance', 'VP Financial Systems',
+      'Controller', 'VP Accounting', 'Head of Finance',
+    ],
+    DNN: [
+      'VP Digital', 'SVP Digital', 'VP Marketing Technology',
+      'VP Web Experience', 'Head of Digital',
+    ],
   },
   2: {
     Care: [
@@ -217,6 +269,23 @@ const TIER_TARGETS = {
       'Group Executive Marketing', 'Managing Director Marketing',
       'Executive General Manager Marketing',
     ],
+    Jive: [
+      'Chief People Officer', 'Chief Communications Officer', 'CHRO',
+      'SVP Internal Communications', 'VP Internal Communications',
+      'Head of Internal Communications', 'VP Digital Workplace',
+    ],
+    Gensym: [
+      'Chief Technology Officer', 'CTO', 'VP Engineering',
+      'SVP Engineering', 'VP Operations', 'VP Manufacturing Technology',
+    ],
+    Computron: [
+      'Chief Financial Officer', 'CFO', 'VP Finance',
+      'SVP Finance', 'Controller', 'Chief Accounting Officer',
+    ],
+    DNN: [
+      'Chief Digital Officer', 'CDO', 'Chief Technology Officer', 'CTO',
+      'VP Digital', 'SVP Digital', 'VP Marketing Technology',
+    ],
   },
   3: {
     Care: [
@@ -228,6 +297,18 @@ const TIER_TARGETS = {
     ],
     Marketing: [
       'CMO', 'Chief Marketing Officer', 'VP Marketing',
+    ],
+    Jive: [
+      'Chief People Officer', 'CHRO', 'VP Internal Communications', 'VP HR Technology',
+    ],
+    Gensym: [
+      'CTO', 'Chief Technology Officer', 'VP Engineering', 'VP Operations',
+    ],
+    Computron: [
+      'CFO', 'Chief Financial Officer', 'VP Finance', 'Controller',
+    ],
+    DNN: [
+      'CDO', 'Chief Digital Officer', 'VP Digital', 'VP Marketing Technology',
     ],
   },
   // Tiers 4 & 5 use generic senior exec targeting
@@ -586,7 +667,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
           const altName = altRevealed.name || `${altRevealed.first_name || ''} ${altRevealed.last_name || ''}`.trim();
           if (usedNames.has(altName)) { const ex = productContacts.find((pc) => pc.fullName === altName); if (ex) ex.products.push(product); break; }
           usedNames.add(altName);
-          productContacts.push({ product, products: [product], fullName: altName, title: altTitle || 'Executive', email: altRevealed.email || alt.email || null, linkedinUrl: altRevealed.linkedin_url || alt.linkedin_url || null, source: 'apollo', confidence: (altRevealed.email || alt.email) ? 'high' : 'medium' });
+          productContacts.push({ product, products: [product], fullName: altName, title: altTitle || 'Executive', email: altRevealed.email || alt.email || null, linkedinUrl: altRevealed.linkedin_url || alt.linkedin_url || null, source: 'apollo', confidence: (altRevealed.email || alt.email) ? 'high' : 'medium', city: altRevealed.city || alt.city || null, country: altRevealed.country || alt.country || null });
           break;
         }
         continue;
@@ -607,6 +688,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
       productContacts.push({
         product, products: [product], fullName,
         title: revealedTitle || 'Executive', email, linkedinUrl: linkedin,
+        city: revealed.city || best.city || null, country: revealed.country || best.country || null,
         source: 'apollo', confidence: email ? 'high' : 'medium',
       });
     }
@@ -621,8 +703,9 @@ export async function enrichContact(companyName, products, anchorContact, totalA
         productContacts.push({
           product: products[0] || null, products: [...products], fullName: fbName,
           title: fb.title || 'Executive', email: fb.email || null,
-          linkedinUrl: fb.linkedin_url || null, source: 'apollo',
-          confidence: fb.email ? 'medium' : 'low',
+          linkedinUrl: fb.linkedin_url || null,
+          city: fb.city || fallbackPool[0].city || null, country: fb.country || fallbackPool[0].country || null,
+          source: 'apollo', confidence: fb.email ? 'medium' : 'low',
         });
       }
     }
@@ -685,6 +768,7 @@ export async function enrichContact(companyName, products, anchorContact, totalA
         title: fb.title || 'Executive',
         email: fb.email || null,
         linkedinUrl: fb.linkedinUrl || null,
+        city: fb.city || null, country: fb.country || null,
         source: 'apollo',
         confidence: fb.email ? 'medium' : 'low',
       });
@@ -764,6 +848,8 @@ export async function enrichContact(companyName, products, anchorContact, totalA
       title: primary.title,
       email: primary.email,
       linkedinUrl: primary.linkedinUrl,
+      city: primary.city || null,
+      country: primary.country || null,
       source: primary.source,
       confidence: primary.confidence,
       matchedProduct: primary.products.join(', '),
@@ -895,6 +981,7 @@ async function revealCandidates(apiKey, candidates, companyWebsite) {
           score: c.score,
           matchedProduct: c.matchedProduct,
           verified: false,
+          city: c.city || null, country: c.country || null,
         };
       }
       try {
@@ -941,6 +1028,7 @@ async function revealCandidates(apiKey, candidates, companyWebsite) {
           score: linkedinNameMatch ? c.score : c.score * 0.3, // heavily demote mismatches
           matchedProduct: c.matchedProduct,
           verified: isVerified,
+          city: full.city || c.city || null, country: full.country || c.country || null,
         };
       } catch {
         return {
@@ -951,6 +1039,7 @@ async function revealCandidates(apiKey, candidates, companyWebsite) {
           score: c.score,
           matchedProduct: c.matchedProduct,
           verified: false,
+          city: c.city || null, country: c.country || null,
         };
       }
     })
@@ -1060,6 +1149,30 @@ const FUNCTIONAL_TITLES = {
     'VP Marketing', 'Vice President Marketing', 'SVP Marketing', 'Director Marketing',
     'Head of Marketing', 'VP Growth', 'Director Growth', 'Senior Director Marketing',
     'VP Marketing Technology', 'Director Marketing Operations',
+  ],
+  Jive: [
+    'VP Internal Communications', 'VP HR Technology', 'VP Digital Workplace',
+    'VP Employee Experience', 'Director Internal Communications',
+    'Head of Internal Communications', 'Director HR Technology',
+    'Senior Director Digital Workplace', 'VP Communications',
+  ],
+  Gensym: [
+    'VP Engineering', 'VP Operations', 'VP Manufacturing Technology',
+    'VP Process Engineering', 'Director Engineering', 'Director Operations',
+    'Head of Engineering', 'Senior Director Engineering',
+    'VP Production', 'Director Manufacturing',
+  ],
+  Computron: [
+    'VP Finance', 'VP Financial Systems', 'VP Accounting',
+    'VP Financial Planning', 'Director Finance', 'Director Financial Systems',
+    'Head of Finance', 'Senior Director Finance',
+    'Controller', 'VP Financial Operations',
+  ],
+  DNN: [
+    'VP Digital', 'VP Marketing Technology', 'VP Web Experience',
+    'VP Web Development', 'Director Digital', 'Director Marketing Technology',
+    'Head of Digital', 'Senior Director Digital',
+    'VP Digital Experience', 'Director Web Experience',
   ],
 };
 
@@ -1239,4 +1352,63 @@ function buildFallback(companyName, products, anchorContact) {
     noContacts: !hasAnchor, // true when Apollo returned nothing and no sheet anchor
     companyName, // pass through for the "Search on Apollo" link
   };
+}
+
+/**
+ * Lightweight location-based contact search for Visit Outreach.
+ * Searches Apollo for senior contacts at a company in a specific location.
+ * No reveals — returns raw search data (email may be obfuscated).
+ */
+export async function searchContactsByLocation(companyName, location) {
+  const apiKey = process.env.APOLLO_API_KEY;
+  if (!apiKey) return [];
+
+  const searchBody = {
+    q_organization_name: companyName,
+    person_locations: [location],
+    person_titles: [
+      'Chief', 'CEO', 'COO', 'CMO', 'CRO', 'CCO', 'CDO', 'CFO', 'CTO',
+      'President', 'EVP', 'Executive Vice President',
+      'SVP', 'Senior Vice President',
+      'VP', 'Vice President', 'Head of', 'Director',
+    ],
+    page: 1,
+    per_page: 10,
+  };
+
+  try {
+    const res = await fetch(`${APOLLO_API_BASE}/api/v1/mixed_people/api_search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      body: JSON.stringify(searchBody),
+    });
+    const data = await res.json();
+    let people = data.people || [];
+
+    // Org-name filter (reuse shared function)
+    people = filterPeopleByOrg(people, companyName, 'Visit');
+
+    // Filter non-person entries
+    people = people.filter(p => {
+      const first = (p.first_name || '').trim();
+      const last = (p.last_name || p.last_name_obfuscated || '').trim();
+      return first && last && first.split(/\s+/).length <= 2;
+    });
+
+    // Sort by seniority and return top contacts
+    people.sort((a, b) => getSeniority(b.title) - getSeniority(a.title));
+
+    return people.slice(0, 5).map(p => ({
+      name: `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim(),
+      title: p.title || '',
+      email: p.email || null,
+      linkedinUrl: p.linkedin_url || null,
+      city: p.city || null,
+      country: p.country || null,
+      hasEmail: !!p.has_email,
+    }));
+  } catch (err) {
+    console.warn(`[Visit] Search failed for "${companyName}":`, err.message);
+    return [];
+  }
 }

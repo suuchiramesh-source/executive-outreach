@@ -5,6 +5,9 @@
     "api/accounts/*.js": {
       "maxDuration": 60
     },
+    "api/accounts-extended.js": {
+      "maxDuration": 60
+    },
     "api/enrich.js": {
       "maxDuration": 60
     },
@@ -12,6 +15,9 @@
       "maxDuration": 60
     },
     "api/create-draft.js": {
+      "maxDuration": 30
+    },
+    "api/visit-search.js": {
       "maxDuration": 30
     }
   },

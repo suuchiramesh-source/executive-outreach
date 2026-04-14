@@ -4,6 +4,8 @@ const ARR_SHEET_ID = '1QxifbT-4udVfJTyMSWfYQNjgVXtH8WKpX26pCJ9jpOg';
 const ARR_TAB = 'ARR Sorted';
 const PRODUCT_SHEET_ID = '1sy-4gd8a8ptkLXuriQfIvsIkRVdTT4RcVszG3LOm_d8';
 const PRODUCT_TAB = 'Current Week Khoros Product Wise ARR';
+const EXTENDED_TAB = 'Current Week';
+const EXTENDED_PRODUCTS = ['jive', 'gensym', 'computron', 'dnn'];
 
 function getAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -188,4 +190,103 @@ export async function fetchProductData() {
   }
 
   return productMap;
+}
+
+/**
+ * Fetch extended (non-Khoros) product accounts from the "Current Week" tab.
+ * Returns aggregated accounts for the requested product (Jive, Gensym, Computron, DNN).
+ */
+export async function fetchExtendedProductData(targetProduct) {
+  const sheets = await getSheets();
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: PRODUCT_SHEET_ID,
+      range: `'${EXTENDED_TAB}'!A:I`,
+    })
+  );
+
+  const rows = res.data.values || [];
+  if (rows.length < 2) return [];
+
+  // Find header row (scan first 10 rows for one containing "class" or "end user")
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const rowText = rows[i].join(' ').toLowerCase();
+    if (rowText.includes('class') && (rowText.includes('end user') || rowText.includes('customer'))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  if (headerRowIdx === -1) {
+    // Fallback: assume row 0 is header
+    headerRowIdx = 0;
+  }
+
+  const header = rows[headerRowIdx].map(h => (h || '').toLowerCase().trim());
+  const data = rows.slice(headerRowIdx + 1);
+
+  // Find column indices dynamically from headers
+  let classIdx = header.findIndex(h => h.includes('class'));
+  if (classIdx === -1) classIdx = 0;
+  let endUserIdx = header.findIndex(h => h.includes('end user'));
+  if (endUserIdx === -1) endUserIdx = 1;
+  let customerIdx = header.findIndex(h => h.includes('customer') && !h.includes('end'));
+  if (customerIdx === -1) customerIdx = 2;
+  let arrIdx = header.findIndex(h => h.includes('arr'));
+  if (arrIdx === -1) arrIdx = 8;
+  let statusIdx = header.findIndex(h => h.includes('support') || h.includes('bucket'));
+  if (statusIdx === -1) statusIdx = 7;
+
+  console.log(`[Extended Sheet] Header row ${headerRowIdx}: class=${classIdx} endUser=${endUserIdx} customer=${customerIdx} arr=${arrIdx} status=${statusIdx}`);
+
+  const targetLower = targetProduct.toLowerCase();
+  const accountMap = new Map();
+
+  // Column A only appears on the first row of each product group — fill down
+  let currentClass = '';
+  for (const row of data) {
+    const rawClass = (row[classIdx] || '').trim();
+    if (rawClass) currentClass = rawClass;
+    const productClass = currentClass;
+    if (productClass.toLowerCase() !== targetLower) continue;
+
+    const endUser = (row[endUserIdx] || '').trim();
+    const customer = (row[customerIdx] || '').trim();
+    const rawARR = (row[arrIdx] || '').replace(/[$,]/g, '');
+    const arr = parseFloat(rawARR) || 0;
+    const status = (row[statusIdx] || '').trim();
+
+    if (!endUser || arr <= 0) continue;
+
+    const key = endUser.toLowerCase();
+    if (accountMap.has(key)) {
+      const existing = accountMap.get(key);
+      existing.totalARR += arr;
+      if (status && !existing.status) existing.status = status;
+    } else {
+      // Strip leading numeric ID from customer name (e.g. "51668 Orange SA" → "Orange SA")
+      const cleanCustomer = customer.replace(/^\d+\s+/, '').trim();
+      const reseller = (cleanCustomer && cleanCustomer.toLowerCase() !== endUser.toLowerCase()) ? cleanCustomer : null;
+      accountMap.set(key, {
+        id: `${targetLower}-${key.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`,
+        customerName: endUser,
+        totalARR: arr,
+        status: status || 'active',
+        product: targetProduct,
+        products: [targetProduct],
+        reseller,
+        executivePOC: '',
+        executivePOCTitle: '',
+        hasAnchorContact: false,
+        matchConfidence: 1,
+        matchedProductAccount: null,
+        lowConfidenceMatch: false,
+      });
+    }
+  }
+
+  const accounts = [...accountMap.values()];
+  accounts.sort((a, b) => b.totalARR - a.totalARR);
+  console.log(`[Extended Sheet] ${accounts.length} accounts for "${targetProduct}"`);
+  return accounts;
 }

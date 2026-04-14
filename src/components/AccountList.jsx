@@ -26,7 +26,14 @@ export default function AccountList({ accounts, selectedId, onSelect }) {
           className={`account-item ${account.id === selectedId ? 'active' : ''}`}
           onClick={() => onSelect(account)}
         >
-          <div className="account-name">{account.customerName}</div>
+          <div className="account-name">
+            {account.customerName}
+            {account.reseller && (
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: '#94A3B8', marginTop: 1 }}>
+                via {account.reseller}
+              </span>
+            )}
+          </div>
           <div className="account-meta">
             <span className="arr-value">{formatARR(account.totalARR)}</span>
             <span className={`status-badge ${statusClass(account.status)}`}>
@@ -43,7 +50,7 @@ export default function AccountList({ accounts, selectedId, onSelect }) {
               </span>
             ))}
           </div>
-          {account.hasAnchorContact === false && (
+          {account.hasAnchorContact === false && account.products?.every(p => ['Care','Community','Marketing','Platform','Unknown'].includes(p)) && (
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',

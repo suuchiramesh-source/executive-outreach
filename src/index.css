@@ -82,6 +82,60 @@ body {
   font-weight: 400;
 }
 
+/* Mode tabs */
+.mode-tabs {
+  display: flex;
+  padding: 0 16px;
+  background: var(--gray-bg);
+  gap: 0;
+  border-bottom: 2px solid var(--border-light);
+}
+.mode-tab {
+  padding: 9px 16px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color var(--transition), border-color var(--transition);
+}
+.mode-tab:hover { color: var(--text); }
+.mode-tab.active {
+  color: var(--teal-dark);
+  border-bottom-color: var(--teal-dark);
+}
+
+/* Platform tabs */
+.platform-tabs {
+  display: flex;
+  padding: 0 16px 0;
+  background: var(--gray-bg);
+  gap: 2px;
+  border-bottom: 1px solid var(--border-light);
+}
+.platform-tab {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition);
+}
+.platform-tab:hover { color: var(--text); }
+.platform-tab.active {
+  color: var(--teal-bright);
+  border-bottom-color: var(--teal-bright);
+}
+
 /* Search */
 .search-wrapper {
   padding: 16px 16px 12px;

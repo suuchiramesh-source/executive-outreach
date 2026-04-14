@@ -2,9 +2,19 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import AccountList from './components/AccountList';
 import ContactCard from './components/ContactCard';
 import EmailDraft from './components/EmailDraft';
+import VisitOutreach from './components/VisitOutreach';
 
+const PLATFORM_TABS = ['Khoros', 'Jive', 'Gensym', 'Computron', 'DNN'];
 const PRODUCT_FILTERS = ['All', 'Care', 'Community', 'Marketing'];
 const STATUS_FILTERS = ['All', 'Active', 'Partial'];
+
+const KHOROS_SUBPRODUCTS = new Set(['Care', 'Community', 'Marketing', 'Platform', 'Unknown']);
+const EXTENDED_PRODUCT_DESC = {
+  Jive: 'enterprise intranet and internal communications',
+  Gensym: 'AI and expert systems for industrial automation',
+  Computron: 'enterprise financial management',
+  DNN: 'web content management and digital experience',
+};
 
 // Injected at build time from GOOGLE_CLIENT_ID env var (see vite.config.js)
 // eslint-disable-next-line no-undef
@@ -22,7 +32,77 @@ function authFetch(url, options = {}) {
   });
 }
 
-// ── Google Sign-In Gate ───────────────────────────────────────────
+const IS_DEV = !GOOGLE_CLIENT_ID;
+
+// ── Dev Password Gate (local development only) ───────────────────
+function DevPasswordGate({ onAuth }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setChecking(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        sessionStorage.setItem('dev_auth', 'true');
+        onAuth({ email: 'dev@ignitetech.com', name: 'Dev User' });
+      } else {
+        setError('Incorrect password');
+        setPassword('');
+      }
+    } catch {
+      setError('Connection error');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      width: '100vw', height: '100vh', background: '#0D4B5E',
+    }}>
+      <form onSubmit={handleSubmit} style={{
+        background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.15)',
+        borderRadius: 12, padding: '48px 40px', width: 360, textAlign: 'center',
+      }}>
+        <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Executive Intelligence</h1>
+        <div style={{ color: '#CBD5E1', fontSize: 14, marginBottom: 28 }}>Local Development</div>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Enter password"
+          autoFocus
+          style={{
+            width: '100%', height: 44, padding: '0 16px', borderRadius: 8,
+            border: '1px solid rgba(255,255,255,.2)', background: 'rgba(255,255,255,.08)',
+            color: '#fff', fontSize: 15, outline: 'none', fontFamily: 'inherit',
+            marginBottom: 12,
+          }}
+        />
+        {error && <div style={{ color: '#F87171', fontSize: 13, marginBottom: 8 }}>{error}</div>}
+        <button type="submit" disabled={checking} style={{
+          width: '100%', height: 44, borderRadius: 8, border: 'none',
+          background: '#00A99D', color: '#fff', fontSize: 15, fontWeight: 600,
+          cursor: 'pointer', fontFamily: 'inherit', opacity: checking ? 0.6 : 1,
+        }}>
+          {checking ? 'Checking...' : 'Enter'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ── Google Sign-In Gate (production) ─────────────────────────────
 function GoogleSignIn({ onAuth }) {
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
@@ -105,6 +185,9 @@ function GoogleSignIn({ onAuth }) {
 
 export default function App() {
   const [authed, setAuthed] = useState(() => {
+    // Dev mode: check sessionStorage
+    if (IS_DEV) return sessionStorage.getItem('dev_auth') === 'true';
+    // Production: check JWT expiry
     const token = localStorage.getItem('session_token');
     if (!token) return false;
     try {
@@ -118,26 +201,36 @@ export default function App() {
   });
 
   const [user, setUser] = useState(() => {
+    if (IS_DEV && sessionStorage.getItem('dev_auth') === 'true') {
+      return { email: 'dev@ignitetech.com', name: 'Dev User' };
+    }
     try { return JSON.parse(localStorage.getItem('session_user')); }
     catch { return null; }
   });
 
   function handleSignOut() {
-    localStorage.removeItem('session_token');
-    localStorage.removeItem('session_user');
-    window.google?.accounts?.id?.disableAutoSelect();
+    if (IS_DEV) {
+      sessionStorage.removeItem('dev_auth');
+    } else {
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('session_user');
+      window.google?.accounts?.id?.disableAutoSelect();
+    }
     setAuthed(false);
     setUser(null);
   }
 
   if (!authed) {
-    return <GoogleSignIn onAuth={(u) => { setAuthed(true); setUser(u); }} />;
+    const SignInGate = IS_DEV ? DevPasswordGate : GoogleSignIn;
+    return <SignInGate onAuth={(u) => { setAuthed(true); setUser(u); }} />;
   }
 
   return <MainApp user={user} onSignOut={handleSignOut} />;
 }
 
 function MainApp({ user, onSignOut }) {
+  const [mode, setMode] = useState('accounts'); // 'accounts' | 'visit-outreach'
+  const [activePlatform, setActivePlatform] = useState('Khoros');
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -158,13 +251,26 @@ function MainApp({ user, onSignOut }) {
 
   useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [activePlatform]);
+
+  function handlePlatformChange(platform) {
+    if (platform === activePlatform) return;
+    setActivePlatform(platform);
+    setSelectedId(null);
+    setActiveContact(null);
+    setSearch('');
+    setFilterProduct('All');
+    setFilterStatus('All');
+  }
 
   async function fetchAccounts() {
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch('/api/accounts');
+      const url = activePlatform === 'Khoros'
+        ? '/api/accounts'
+        : `/api/accounts-extended?product=${activePlatform}`;
+      const res = await authFetch(url);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setAccounts(data);
@@ -179,7 +285,11 @@ function MainApp({ user, onSignOut }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch('/api/accounts/refresh', { method: 'POST' });
+      const url = activePlatform === 'Khoros'
+        ? '/api/accounts/refresh'
+        : `/api/accounts-extended?product=${activePlatform}&refresh=1`;
+      const method = activePlatform === 'Khoros' ? 'POST' : 'GET';
+      const res = await authFetch(url, { method });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setAccounts(data);
@@ -198,14 +308,15 @@ function MainApp({ user, onSignOut }) {
       const q = search.toLowerCase();
       list = list.filter((a) => a.customerName.toLowerCase().includes(q));
     }
-    if (filterProduct !== 'All') {
+    if (activePlatform === 'Khoros' && filterProduct !== 'All') {
       list = list.filter((a) => a.products.includes(filterProduct));
     }
     if (filterStatus !== 'All') {
       const statusKey = filterStatus.toLowerCase();
       list = list.filter((a) => {
-        if (statusKey === 'active') return a.status === 'active' || a.status === 'is active';
-        if (statusKey === 'partial') return a.status.includes('partial');
+        const s = (a.status || '').toLowerCase();
+        if (statusKey === 'active') return s === 'active' || s === 'is active';
+        if (statusKey === 'partial') return s.includes('partial');
         return true;
       });
     }
@@ -278,6 +389,9 @@ function MainApp({ user, onSignOut }) {
           salesforceSignal: data.salesforceSignal,
           draft: draftData.draft,
           draftSubject: draftData.subject,
+          accountName: account.customerName,
+          accountARR: account.totalARR,
+          accountProducts: account.products,
         },
       }));
 
@@ -331,6 +445,10 @@ function MainApp({ user, onSignOut }) {
   }
 
   function formatProductPhrase(products) {
+    const product = products[0];
+    if (EXTENDED_PRODUCT_DESC[product]) {
+      return `${product}, our ${EXTENDED_PRODUCT_DESC[product]} platform`;
+    }
     if (products.length === 1) return `the Khoros ${products[0]} platform`;
     if (products.length === 2) return `the Khoros ${products[0]} and ${products[1]} platforms`;
     return `the Khoros ${products.slice(0, -1).join(', ')}, and ${products[products.length - 1]} platforms`;
@@ -343,10 +461,12 @@ function MainApp({ user, onSignOut }) {
     const cleanCompany = stripLegalSuffix(selectedAccount.customerName);
     const products = selectedAccount.products;
     const platformPhrase = formatProductPhrase(products);
-    const subject = `${firstName} — ${cleanCompany} + Khoros, wanted to connect personally`;
+    const isKhoros = products.every(p => KHOROS_SUBPRODUCTS.has(p));
+    const brandName = isKhoros ? 'Khoros' : products[0];
+    const subject = `${firstName} — ${cleanCompany} + ${brandName}, wanted to connect personally`;
     const body = `Hi ${firstName},
 
-I'm Suuchi Ramesh — I lead the commercial and customer organization at IgniteTech, which now owns Khoros. I'm reaching out directly because ${cleanCompany} is one of our most important partnerships, and I'd like to use this moment to build the right executive relationship.
+I'm Suuchi Ramesh — I lead the commercial and customer organization at IgniteTech, which owns ${brandName}. I'm reaching out directly because ${cleanCompany} is one of our most important partnerships, and I'd like to use this moment to build the right executive relationship.
 
 We're making real investment in ${platformPhrase} and I'd rather you hear that from me than secondhand. I'm personally committed to making sure ${cleanCompany} gets the full picture.
 
@@ -360,6 +480,34 @@ IgniteTech / Khoros`;
   }
 
   const currentDraft = activeContact ? getDraftForTarget() : null;
+
+  if (mode === 'visit-outreach') {
+    return (
+      <div className="app" style={{ flexDirection: 'column' }}>
+        <div className="sidebar-header" style={{ flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <h1>Executive Intelligence</h1>
+              <div className="subtitle">
+                IgniteTech / Khoros
+                {user && (
+                  <>
+                    {' · '}
+                    <span onClick={onSignOut} style={{ cursor: 'pointer', opacity: 0.6 }} title={user.email}>Sign out</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mode-tabs">
+          <button className="mode-tab" onClick={() => setMode('accounts')}>Account View</button>
+          <button className="mode-tab active">Visit Outreach</button>
+        </div>
+        <VisitOutreach authFetch={authFetch} />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -397,6 +545,25 @@ IgniteTech / Khoros`;
           </div>
         </div>
 
+        {/* Mode tabs */}
+        <div className="mode-tabs">
+          <button className="mode-tab active">Account View</button>
+          <button className="mode-tab" onClick={() => setMode('visit-outreach')}>Visit Outreach</button>
+        </div>
+
+        {/* Platform tabs */}
+        <div className="platform-tabs">
+          {PLATFORM_TABS.map((tab) => (
+            <button
+              key={tab}
+              className={`platform-tab ${activePlatform === tab ? 'active' : ''}`}
+              onClick={() => handlePlatformChange(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
         {/* Search */}
         <div className="search-wrapper">
           <div className="search-input-wrap">
@@ -418,17 +585,21 @@ IgniteTech / Khoros`;
 
         {/* Filter pills */}
         <div className="filter-row">
-          {PRODUCT_FILTERS.map((f) => (
-            <button
-              key={`p-${f}`}
-              className={`filter-pill ${filterProduct === f ? 'active' : ''}`}
-              data-filter={f}
-              onClick={() => setFilterProduct(f)}
-            >
-              {f}
-            </button>
-          ))}
-          <span className="filter-divider" />
+          {activePlatform === 'Khoros' && (
+            <>
+              {PRODUCT_FILTERS.map((f) => (
+                <button
+                  key={`p-${f}`}
+                  className={`filter-pill ${filterProduct === f ? 'active' : ''}`}
+                  data-filter={f}
+                  onClick={() => setFilterProduct(f)}
+                >
+                  {f}
+                </button>
+              ))}
+              <span className="filter-divider" />
+            </>
+          )}
           {STATUS_FILTERS.map((f) => (
             <button
               key={`s-${f}`}
