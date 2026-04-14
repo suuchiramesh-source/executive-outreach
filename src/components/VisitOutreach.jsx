@@ -155,45 +155,18 @@ export default function VisitOutreach({ authFetch }) {
     window.open(url, '_blank');
   }
 
-  async function handleBatchDrafts() {
+  function handleBatchDrafts() {
     const contacts = results.filter(r => selected.has(r.id));
     const withEmail = contacts.filter(c => c.email && !c.email.includes('*'));
     const skipped = contacts.filter(c => !c.email || c.email.includes('*'));
-    setDraftsProgress({ current: 0, total: withEmail.length });
-    setDraftsSummary(null);
-    setDraftErrors([]);
 
-    let created = 0;
-    const errors = [];
-    for (let i = 0; i < withEmail.length; i++) {
-      const c = withEmail[i];
-      const subject = `Eric Vaughan is visiting — wanted to connect you both`;
-      const body = personalizeMessage(message, c);
-      try {
-        const res = await authFetch('/api/create-draft', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: c.email, subject, body }),
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          created++;
-          console.log(`[Draft] Created for ${c.email}: draftId=${data.draftId}`);
-        } else {
-          const errMsg = data.error || `HTTP ${res.status}`;
-          console.error(`[Draft] Failed for ${c.email}: ${errMsg}`);
-          errors.push({ name: c.name, email: c.email, error: errMsg });
-        }
-      } catch (err) {
-        console.error(`[Draft] Network error for ${c.email}:`, err);
-        errors.push({ name: c.name, email: c.email, error: err.message || 'Network error' });
-      }
-      setDraftsProgress({ current: i + 1, total: withEmail.length });
+    // Use the same Gmail compose URL approach as Account View's "Draft in Gmail" button
+    for (const c of withEmail) {
+      handleOpenGmailCompose(c);
     }
 
-    setDraftsProgress(null);
-    setDraftErrors(errors);
-    setDraftsSummary({ created, skipped: skipped.map(c => c.name), failed: errors.length });
+    setDraftsSummary({ created: withEmail.length, skipped: skipped.map(c => c.name), failed: 0 });
+    setDraftErrors([]);
   }
 
   return (
