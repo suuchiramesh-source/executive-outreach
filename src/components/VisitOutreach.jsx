@@ -42,9 +42,8 @@ export default function VisitOutreach({ authFetch }) {
   const [searching, setSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState(null); // { current, total }
   const [searched, setSearched] = useState(false);
-  const [draftsProgress, setDraftsProgress] = useState(null);
+  const [draftQueue, setDraftQueue] = useState(null); // { contacts: [], current: 0, skipped: [] }
   const [draftsSummary, setDraftsSummary] = useState(null);
-  const [draftErrors, setDraftErrors] = useState([]);
 
   async function handleSearch() {
     if (!location.trim()) return;
@@ -155,71 +154,26 @@ export default function VisitOutreach({ authFetch }) {
     window.open(url, '_blank');
   }
 
-  async function handleBatchDrafts() {
+  function handleStartBatch() {
     const contacts = results.filter(r => selected.has(r.id));
     const withEmail = contacts.filter(c => c.email && !c.email.includes('*'));
     const noEmail = contacts.filter(c => !c.email || c.email.includes('*'));
-
-    console.log(`[BatchDraft] Starting: ${withEmail.length} with email, ${noEmail.length} without`);
-    setDraftsProgress({ current: 0, total: withEmail.length });
     setDraftsSummary(null);
-    setDraftErrors([]);
+    setDraftQueue({ contacts: withEmail, current: 0, skipped: noEmail.map(c => c.name) });
+  }
 
-    let created = 0;
-    const errors = [];
-
-    for (let i = 0; i < withEmail.length; i++) {
-      const c = withEmail[i];
-      const subject = `Eric Vaughan is visiting — wanted to connect you both`;
-      const body = personalizeMessage(message, c);
-
-      console.log(`[BatchDraft] ${i + 1}/${withEmail.length}: Creating draft for ${c.name} (${c.email})`);
-
-      try {
-        const res = await authFetch('/api/create-draft', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: c.email,
-            cc: 'megan.anderson@ignitetech.ai',
-            subject,
-            body,
-          }),
-        });
-        const data = await res.json();
-
-        if (res.ok && data.success) {
-          created++;
-          console.log(`[BatchDraft] SUCCESS: ${c.name} → draftId=${data.draftId}`);
-        } else {
-          const errMsg = data.error || `HTTP ${res.status}`;
-          console.error(`[BatchDraft] FAILED: ${c.name} → ${errMsg}`);
-          errors.push({ name: c.name, email: c.email, error: errMsg });
-        }
-      } catch (err) {
-        console.error(`[BatchDraft] ERROR: ${c.name} →`, err);
-        errors.push({ name: c.name, email: c.email, error: err.message || 'Network error' });
-      }
-
-      setDraftsProgress({ current: i + 1, total: withEmail.length });
-
-      // 500ms delay between each draft
-      if (i < withEmail.length - 1) {
-        await new Promise(r => setTimeout(r, 500));
-      }
+  function handleNextDraft() {
+    if (!draftQueue || draftQueue.current >= draftQueue.contacts.length) return;
+    const c = draftQueue.contacts[draftQueue.current];
+    openGmailCompose(c);
+    const next = draftQueue.current + 1;
+    if (next >= draftQueue.contacts.length) {
+      // Done
+      setDraftsSummary({ created: draftQueue.contacts.length, skipped: draftQueue.skipped, failed: 0 });
+      setDraftQueue(null);
+    } else {
+      setDraftQueue({ ...draftQueue, current: next });
     }
-
-    console.log(`[BatchDraft] Done: ${created} created, ${errors.length} failed, ${noEmail.length} skipped`);
-    setDraftsProgress(null);
-    setDraftsSummary({ created, skipped: noEmail.map(c => c.name), failed: errors.length });
-    setDraftErrors([
-      ...errors,
-      ...noEmail.map(c => ({
-        name: c.name,
-        email: '(none)',
-        error: 'No email address — Apollo reveal did not return an email for this contact',
-      })),
-    ]);
   }
 
   return (
@@ -357,63 +311,64 @@ export default function VisitOutreach({ authFetch }) {
               </div>
             </div>
 
-            {selected.size > 0 && (
+            {selected.size > 0 && !draftQueue && !draftsSummary && (
               <div style={{ marginBottom: 16 }}>
-                {draftsProgress ? (
+                <button
+                  onClick={handleStartBatch}
+                  style={{
+                    padding: '10px 20px', borderRadius: 8, border: 'none',
+                    background: 'var(--teal-bright)', color: '#fff', fontSize: 14, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  Generate Gmail Drafts for {selected.size} Selected
+                </button>
+              </div>
+            )}
+
+            {draftQueue && (
+              <div style={{ marginBottom: 16, padding: '16px', background: 'var(--teal-bright-10)', borderRadius: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--teal-bright)', marginBottom: 8 }}>
+                  Draft {draftQueue.current + 1} of {draftQueue.contacts.length}: {draftQueue.contacts[draftQueue.current]?.name}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Click the button below to open Gmail compose for this contact. Then come back and click again for the next one.
+                </div>
+                <button
+                  onClick={handleNextDraft}
+                  style={{
+                    padding: '10px 24px', borderRadius: 8, border: 'none',
+                    background: 'var(--teal-bright)', color: '#fff', fontSize: 14, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  Open Gmail Draft for {draftQueue.contacts[draftQueue.current]?.name} →
+                </button>
+                <div style={{
+                  marginTop: 8, height: 4, background: 'rgba(0,169,157,.2)', borderRadius: 2, overflow: 'hidden',
+                }}>
                   <div style={{
-                    padding: '12px 16px', background: 'var(--teal-bright-10)',
-                    borderRadius: 8, fontSize: 14, fontWeight: 500, color: 'var(--teal-bright)',
-                  }}>
-                    Creating drafts... {draftsProgress.current} of {draftsProgress.total}
+                    width: `${((draftQueue.current) / draftQueue.contacts.length) * 100}%`,
+                    height: '100%', background: 'var(--teal-bright)', borderRadius: 2,
+                  }} />
+                </div>
+              </div>
+            )}
+
+            {draftsSummary && (
+              <div style={{ marginBottom: 16, padding: '12px 16px', background: '#f0fdf4', borderRadius: 8, fontSize: 13 }}>
+                <strong>{draftsSummary.created} Gmail compose window{draftsSummary.created !== 1 ? 's' : ''} opened.</strong>
+                {draftsSummary.skipped.length > 0 && (
+                  <div style={{ marginTop: 6, color: 'var(--amber)', fontSize: 12 }}>
+                    Skipped (no email): {draftsSummary.skipped.join(', ')}
                   </div>
-                ) : draftsSummary ? (
-                  <div style={{ padding: '12px 16px', background: draftsSummary.created > 0 ? '#f0fdf4' : 'var(--red-bg)', borderRadius: 8, fontSize: 13 }}>
-                    {draftsSummary.created > 0 && (
-                      <div>
-                        <strong>{draftsSummary.created} draft{draftsSummary.created !== 1 ? 's' : ''} created in Gmail.</strong>
-                        {' '}
-                        <a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal-bright)' }}>
-                          Open Gmail →
-                        </a>
-                      </div>
-                    )}
-                    {draftErrors.length > 0 && (
-                      <div style={{ marginTop: draftsSummary.created > 0 ? 8 : 0, color: 'var(--red)' }}>
-                        <strong>{draftErrors.length} draft{draftErrors.length !== 1 ? 's' : ''} failed:</strong>
-                        {draftErrors.map((e, i) => (
-                          <div key={i} style={{ fontSize: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span>{e.name} ({e.email}): {e.error}</span>
-                            <button
-                              onClick={() => openGmailCompose({ email: e.email, name: e.name, accountName: '', product: '', title: '' })}
-                              style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', background: 'var(--white)', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                            >
-                              Open in Gmail →
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {draftsSummary.created === 0 && draftErrors.length === 0 && (
-                      <div style={{ color: 'var(--text-muted)' }}>No drafts to create.</div>
-                    )}
-                    {draftsSummary.skipped.length > 0 && (
-                      <div style={{ marginTop: 6, color: 'var(--amber)', fontSize: 12 }}>
-                        Skipped (no email): {draftsSummary.skipped.join(', ')}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleBatchDrafts}
-                    style={{
-                      padding: '10px 20px', borderRadius: 8, border: 'none',
-                      background: 'var(--teal-bright)', color: '#fff', fontSize: 14, fontWeight: 600,
-                      cursor: 'pointer', fontFamily: 'inherit',
-                    }}
-                  >
-                    Generate Gmail Drafts for {selected.size} Selected
-                  </button>
                 )}
+                <button
+                  onClick={() => { setDraftsSummary(null); setDraftQueue(null); }}
+                  style={{ marginTop: 8, fontSize: 12, border: '1px solid var(--border)', borderRadius: 4, padding: '4px 12px', background: 'var(--white)', cursor: 'pointer' }}
+                >
+                  Done
+                </button>
               </div>
             )}
 
