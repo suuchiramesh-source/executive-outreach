@@ -158,15 +158,23 @@ export default function VisitOutreach({ authFetch }) {
   function handleBatchDrafts() {
     const contacts = results.filter(r => selected.has(r.id));
     const withEmail = contacts.filter(c => c.email && !c.email.includes('*'));
-    const skipped = contacts.filter(c => !c.email || c.email.includes('*'));
+    const noEmail = contacts.filter(c => !c.email || c.email.includes('*'));
 
     // Use the same Gmail compose URL approach as Account View's "Draft in Gmail" button
     for (const c of withEmail) {
       handleOpenGmailCompose(c);
     }
 
-    setDraftsSummary({ created: withEmail.length, skipped: skipped.map(c => c.name), failed: 0 });
-    setDraftErrors([]);
+    setDraftsSummary({
+      created: withEmail.length,
+      skipped: noEmail.map(c => c.name),
+      failed: 0,
+    });
+    setDraftErrors(noEmail.map(c => ({
+      name: c.name,
+      email: '(none)',
+      error: 'No email address — Apollo reveal did not return an email for this contact',
+    })));
   }
 
   return (
@@ -265,10 +273,10 @@ export default function VisitOutreach({ authFetch }) {
           <div style={{ textAlign: 'center', marginTop: 80 }}>
             <div className="spinner" style={{ margin: '0 auto 16px' }} />
             <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text)' }}>
-              Searching Apollo for contacts in "{location}"...
+              Searching &amp; enriching contacts in "{location}"...
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-              {searchProgress.current} of {searchProgress.total} accounts checked
+              {searchProgress.current} of {searchProgress.total} accounts checked (revealing emails)
             </div>
             <div style={{
               width: 300, height: 6, background: 'var(--border)', borderRadius: 3,

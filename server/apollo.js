@@ -1355,9 +1355,9 @@ function buildFallback(companyName, products, anchorContact) {
 }
 
 /**
- * Lightweight location-based contact search for Visit Outreach.
- * Searches Apollo for senior contacts at a company in a specific location.
- * No reveals — returns raw search data (email may be obfuscated).
+ * Location-based contact search for Visit Outreach.
+ * Searches Apollo for senior contacts at a company in a specific location,
+ * then reveals top contacts to get actual email addresses.
  */
 export async function searchContactsByLocation(companyName, location) {
   const apiKey = process.env.APOLLO_API_KEY;
@@ -1385,7 +1385,7 @@ export async function searchContactsByLocation(companyName, location) {
     const data = await res.json();
     let people = data.people || [];
 
-    // Org-name filter (reuse shared function)
+    // Org-name filter
     people = filterPeopleByOrg(people, companyName, 'Visit');
 
     // Filter non-person entries
@@ -1395,18 +1395,46 @@ export async function searchContactsByLocation(companyName, location) {
       return first && last && first.split(/\s+/).length <= 2;
     });
 
-    // Sort by seniority and return top contacts
+    // Sort by seniority and take top 3
     people.sort((a, b) => getSeniority(b.title) - getSeniority(a.title));
+    const top = people.slice(0, 3);
 
-    return people.slice(0, 5).map(p => ({
-      name: `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim(),
-      title: p.title || '',
-      email: p.email || null,
-      linkedinUrl: p.linkedin_url || null,
-      city: p.city || null,
-      country: p.country || null,
-      hasEmail: !!p.has_email,
+    // Reveal each contact to get actual email + LinkedIn
+    const revealed = await Promise.all(top.map(async (p) => {
+      if (!p.id) {
+        return {
+          name: `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim(),
+          title: p.title || '',
+          email: p.email || null,
+          linkedinUrl: p.linkedin_url || null,
+          city: p.city || null,
+          country: p.country || null,
+        };
+      }
+      try {
+        const full = await revealPerson(apiKey, p.id);
+        return {
+          name: full.name || `${full.first_name || ''} ${full.last_name || ''}`.trim() || `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+          title: full.title || p.title || '',
+          email: full.email || null,
+          linkedinUrl: full.linkedin_url || p.linkedin_url || null,
+          city: full.city || p.city || null,
+          country: full.country || p.country || null,
+        };
+      } catch {
+        return {
+          name: `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim(),
+          title: p.title || '',
+          email: p.email || null,
+          linkedinUrl: p.linkedin_url || null,
+          city: p.city || null,
+          country: p.country || null,
+        };
+      }
     }));
+
+    console.log(`[Visit] "${companyName}" in "${location}": ${people.length} found, ${revealed.filter(r => r.email).length}/${revealed.length} with email`);
+    return revealed;
   } catch (err) {
     console.warn(`[Visit] Search failed for "${companyName}":`, err.message);
     return [];
