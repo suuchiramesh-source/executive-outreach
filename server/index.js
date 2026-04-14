@@ -290,6 +290,41 @@ app.post('/api/visit-search', async (req, res) => {
   }
 });
 
+// ── Gmail sent check ──────────────────────────────────────────────
+app.post('/api/check-sent', async (req, res) => {
+  const { emails } = req.body;
+  if (!emails || !Array.isArray(emails) || emails.length === 0) {
+    return res.json({ results: {} });
+  }
+  try {
+    const auth = getGmailAuth();
+    const gmail = google.gmail({ version: 'v1', auth });
+    const results = {};
+    const BATCH = 5;
+    for (let i = 0; i < emails.length; i += BATCH) {
+      const batch = emails.slice(i, i + BATCH);
+      const batchResults = await Promise.all(
+        batch.map(async (email) => {
+          try {
+            const resp = await gmail.users.messages.list({ userId: 'me', q: `in:sent to:${email}`, maxResults: 1 });
+            const messages = resp.data.messages || [];
+            if (messages.length === 0) return { email, sent: false };
+            const msg = await gmail.users.messages.get({ userId: 'me', id: messages[0].id, format: 'metadata', metadataHeaders: ['Date'] });
+            const dateHeader = msg.data.payload?.headers?.find(h => h.name === 'Date');
+            const lastDate = dateHeader ? new Date(dateHeader.value).toISOString().split('T')[0] : null;
+            return { email, sent: true, lastDate };
+          } catch { return { email, sent: false }; }
+        })
+      );
+      for (const r of batchResults) results[r.email] = { sent: r.sent, lastDate: r.lastDate || null };
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error('[CheckSent] Gmail auth error:', err.message);
+    res.json({ results: {}, error: err.message });
+  }
+});
+
 // ── Hunter.io email verification ───────────────────────────────────
 const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const ALL_PRODUCTS = ['Khoros', 'Jive', 'Gensym', 'Computron', 'DNN'];
 const ARR_OPTIONS = [
@@ -42,8 +42,12 @@ export default function VisitOutreach({ authFetch }) {
   const [searching, setSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState(null); // { current, total }
   const [searched, setSearched] = useState(false);
-  const [draftQueue, setDraftQueue] = useState(null); // { contacts: [], current: 0, skipped: [] }
+  const [draftQueue, setDraftQueue] = useState(null);
   const [draftsSummary, setDraftsSummary] = useState(null);
+  const [sentStatus, setSentStatus] = useState({}); // { email: { sent, lastDate } } — cached across filter changes
+  const [checkingSent, setCheckingSent] = useState(false);
+  const [hidePreviouslyContacted, setHidePreviouslyContacted] = useState(false);
+  const sentCacheRef = useRef({}); // session cache so re-filters don't re-query
 
   async function handleSearch() {
     if (!location.trim()) return;
@@ -119,6 +123,40 @@ export default function VisitOutreach({ authFetch }) {
     setSearched(true);
   }
 
+  // After results load, check Gmail sent folder for each contact (non-blocking)
+  useEffect(() => {
+    if (!searched || results.length === 0) return;
+    const emails = results
+      .map(c => c.email)
+      .filter(e => e && !e.includes('*') && !sentCacheRef.current[e]);
+    if (emails.length === 0) {
+      // All already cached — apply cache to state
+      setSentStatus({ ...sentCacheRef.current });
+      return;
+    }
+    setCheckingSent(true);
+    authFetch('/api/check-sent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.results) {
+          const merged = { ...sentCacheRef.current, ...data.results };
+          sentCacheRef.current = merged;
+          setSentStatus(merged);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCheckingSent(false));
+  }, [searched, results]);
+
+  // Filter results by "hide previously contacted"
+  const displayResults = hidePreviouslyContacted
+    ? results.filter(c => !sentStatus[c.email]?.sent)
+    : results;
+
   function toggleProduct(product) {
     setSelectedProducts(prev => {
       const next = new Set(prev);
@@ -135,7 +173,7 @@ export default function VisitOutreach({ authFetch }) {
     });
   }
 
-  function selectAll() { setSelected(new Set(results.map(r => r.id))); }
+  function selectAll() { setSelected(new Set(displayResults.map(r => r.id))); }
   function deselectAll() { setSelected(new Set()); }
   function insertToken(token) { setMessage(prev => prev + token); }
 
@@ -220,9 +258,13 @@ export default function VisitOutreach({ authFetch }) {
           {ARR_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 20, cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 8, cursor: 'pointer' }}>
           <input type="checkbox" checked={includeSecondary} onChange={(e) => setIncludeSecondary(e.target.checked)} />
           Show all contacts per account (not just top match)
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 20, cursor: 'pointer' }}>
+          <input type="checkbox" checked={hidePreviouslyContacted} onChange={(e) => setHidePreviouslyContacted(e.target.checked)} />
+          Hide previously contacted
         </label>
 
         <button
@@ -303,7 +345,8 @@ export default function VisitOutreach({ authFetch }) {
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>
-                {results.length} contact{results.length !== 1 ? 's' : ''} found in "{location}"
+                {displayResults.length} contact{displayResults.length !== 1 ? 's' : ''} found in "{location}"
+                {checkingSent && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>Checking sent history...</span>}
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button onClick={selectAll} style={{ fontSize: 12, border: 'none', background: 'none', color: 'var(--teal-bright)', cursor: 'pointer', fontWeight: 600 }}>Select All</button>
@@ -372,7 +415,7 @@ export default function VisitOutreach({ authFetch }) {
               </div>
             )}
 
-            {results.length === 0 ? (
+            {displayResults.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40, fontSize: 14 }}>
                 No contacts found in "{location}" matching your filters. Try a different location or lower the ARR threshold.
               </div>
@@ -392,13 +435,29 @@ export default function VisitOutreach({ authFetch }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {results.map(c => (
+                    {displayResults.map(c => {
+                      const sent = sentStatus[c.email];
+                      return (
                       <tr key={c.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                         <td style={{ padding: '8px 12px' }}>
                           <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelect(c.id)} />
                         </td>
                         <td style={{ padding: '8px 12px' }}>
-                          <div style={{ fontWeight: 600 }}>{c.name}</div>
+                          <div style={{ fontWeight: 600 }}>
+                            {c.name}
+                            {sent?.sent && (
+                              <span
+                                title={`Last emailed: ${sent.lastDate || 'unknown date'}`}
+                                style={{
+                                  marginLeft: 8, fontSize: 10, fontWeight: 600,
+                                  color: '#d97706', background: 'rgba(217,119,6,.1)',
+                                  padding: '2px 6px', borderRadius: 4, cursor: 'default',
+                                }}
+                              >
+                                ✉ Previously sent
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.title}</div>
                         </td>
                         <td style={{ padding: '8px 12px' }}>
@@ -447,7 +506,8 @@ export default function VisitOutreach({ authFetch }) {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

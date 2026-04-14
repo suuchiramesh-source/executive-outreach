@@ -19,6 +19,9 @@
     },
     "api/visit-search.js": {
       "maxDuration": 30
+    },
+    "api/check-sent.js": {
+      "maxDuration": 30
     }
   },
   "redirects": [
