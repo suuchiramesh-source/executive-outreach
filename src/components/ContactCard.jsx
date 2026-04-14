@@ -4,6 +4,9 @@ const KHOROS_SUBPRODUCTS = new Set(['Care', 'Community', 'Marketing', 'Platform'
 function isKhorosAccount(account) {
   return account.products?.every(p => KHOROS_SUBPRODUCTS.has(p));
 }
+function fmtProduct(p) {
+  return KHOROS_SUBPRODUCTS.has(p) ? `Khoros ${p}` : p;
+}
 
 function formatARR(value) {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -414,7 +417,7 @@ export default function ContactCard({ account, contact, salesforceSignal, active
                 letterSpacing: '0.08em',
                 marginBottom: 8,
               }}>
-                {pc.products.join(' & ')} — Primary Contact
+                {pc.products.map(fmtProduct).join(' & ')} — Primary Contact
                 {isActive && <span style={{ color: '#C8D943', marginLeft: 8, fontSize: 10 }}>DRAFTING</span>}
               </div>
               <div className="contact-name" style={{ fontSize: 32 }}>{pc.fullName}</div>
@@ -438,7 +441,7 @@ export default function ContactCard({ account, contact, salesforceSignal, active
             <div className="contact-title">{contact.title}</div>
             {contact.matchedProduct && (
               <div style={{ fontSize: 13, color: '#00A99D', marginTop: 6, fontWeight: 500 }}>
-                Mapped via {contact.matchedProduct} product line
+                Mapped via {fmtProduct(contact.matchedProduct)} product line
               </div>
             )}
           </div>
@@ -502,7 +505,7 @@ export default function ContactCard({ account, contact, salesforceSignal, active
             </svg>
           </span>
           <span className="pill-label">Products</span>
-          <span className="pill-value teal">{account.products.join(', ')}</span>
+          <span className="pill-value teal">{account.products.map(fmtProduct).join(', ')}</span>
         </div>
 
         <div className="data-pill">
@@ -603,7 +606,7 @@ export default function ContactCard({ account, contact, salesforceSignal, active
                     background: 'rgba(0,169,157,.1)',
                     borderRadius: 99,
                   }}>
-                    {c.matchedProduct}
+                    {fmtProduct(c.matchedProduct)}
                   </span>
                 )}
 

@@ -1,5 +1,10 @@
 import React from 'react';
 
+const KHOROS_SUBS = new Set(['Care', 'Community', 'Marketing', 'Platform', 'Unknown']);
+function formatProductLabel(p) {
+  return KHOROS_SUBS.has(p) ? `Khoros ${p}` : p;
+}
+
 function formatARR(value) {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
@@ -46,7 +51,7 @@ export default function AccountList({ accounts, selectedId, onSelect }) {
           <div className="product-badges">
             {account.products.map((p) => (
               <span key={p} className={`product-badge ${p.toLowerCase()}`}>
-                {p}
+                {formatProductLabel(p)}
               </span>
             ))}
           </div>

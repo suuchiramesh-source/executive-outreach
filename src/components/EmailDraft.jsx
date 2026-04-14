@@ -11,7 +11,7 @@ export default function EmailDraft({ contact, account, initialDraft, initialSubj
 
   function handleDraftInGmail() {
     const to = contact?.email || '';
-    const url = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(to) + '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    const url = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(to) + '&cc=' + encodeURIComponent('megan.anderson@ignitetech.ai') + '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
     window.open(url, '_blank');
   }
 

@@ -17,7 +17,7 @@ Our CEO, Eric Vaughan, will be in the London area for the next few weeks through
 
 Eric is excited about where {Product} is heading and would love to express that in person — both in terms of our commitment to your partnership and the longer-term product vision we're building together.
 
-Would there be a window in the coming weeks where we could bring you and Eric together, even briefly? We're flexible and happy to work around your schedule.
+Would there be a window in the coming weeks where we could bring you and Eric together, even briefly? We're happy to adjust to your schedule.
 
 Looking forward to it.
 
@@ -148,25 +148,35 @@ export default function VisitOutreach({ authFetch }) {
       .replace(/\{Title\}/g, contact.title || '');
   }
 
-  function handleOpenGmailCompose(contact) {
+  function openGmailCompose(contact) {
     const subject = `Eric Vaughan is visiting — wanted to connect you both`;
     const body = personalizeMessage(message, contact);
-    const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(contact.email || '')}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(contact.email || '')}&cc=${encodeURIComponent('megan.anderson@ignitetech.ai')}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(url, '_blank');
   }
 
-  function handleBatchDrafts() {
+  async function handleBatchDrafts() {
     const contacts = results.filter(r => selected.has(r.id));
     const withEmail = contacts.filter(c => c.email && !c.email.includes('*'));
     const noEmail = contacts.filter(c => !c.email || c.email.includes('*'));
+    setDraftsProgress({ current: 0, total: withEmail.length });
+    setDraftsSummary(null);
+    setDraftErrors([]);
 
-    // Use the same Gmail compose URL approach as Account View's "Draft in Gmail" button
-    for (const c of withEmail) {
-      handleOpenGmailCompose(c);
+    let created = 0;
+    for (let i = 0; i < withEmail.length; i++) {
+      openGmailCompose(withEmail[i]);
+      created++;
+      setDraftsProgress({ current: i + 1, total: withEmail.length });
+      // 500ms delay between each to avoid browser popup blocking
+      if (i < withEmail.length - 1) {
+        await new Promise(r => setTimeout(r, 500));
+      }
     }
 
+    setDraftsProgress(null);
     setDraftsSummary({
-      created: withEmail.length,
+      created,
       skipped: noEmail.map(c => c.name),
       failed: 0,
     });
@@ -339,7 +349,7 @@ export default function VisitOutreach({ authFetch }) {
                           <div key={i} style={{ fontSize: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{e.name} ({e.email}): {e.error}</span>
                             <button
-                              onClick={() => handleOpenGmailCompose({ email: e.email, name: e.name, accountName: '', product: '', title: '' })}
+                              onClick={() => openGmailCompose({ email: e.email, name: e.name, accountName: '', product: '', title: '' })}
                               style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', background: 'var(--white)', cursor: 'pointer', whiteSpace: 'nowrap' }}
                             >
                               Open in Gmail →
@@ -437,7 +447,7 @@ export default function VisitOutreach({ authFetch }) {
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                           {c.email && !c.email.includes('*') ? (
                             <button
-                              onClick={() => handleOpenGmailCompose(c)}
+                              onClick={() => openGmailCompose(c)}
                               style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', background: 'var(--white)', cursor: 'pointer', color: 'var(--teal-bright)' }}
                             >
                               Compose
