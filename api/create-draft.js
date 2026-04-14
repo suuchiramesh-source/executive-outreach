@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (!user) return;
 
   try {
-    const { to, subject, body } = req.body;
+    const { to, cc, subject, body } = req.body;
     if (!to || !subject || !body) {
       return res.status(400).json({ error: 'to, subject, and body are required' });
     }
@@ -31,14 +31,18 @@ export default async function handler(req, res) {
     const auth = getGmailAuth();
     const gmail = google.gmail({ version: 'v1', auth });
 
-    const rawMessage = [
+    const headers = [
       `From: Suuchi Ramesh <${SENDER_EMAIL}>`,
       `To: ${to}`,
+    ];
+    if (cc) headers.push(`Cc: ${cc}`);
+    headers.push(
       `Subject: ${subject}`,
       'Content-Type: text/plain; charset=utf-8',
       '',
       body,
-    ].join('\r\n');
+    );
+    const rawMessage = headers.join('\r\n');
 
     const encoded = Buffer.from(rawMessage)
       .toString('base64')

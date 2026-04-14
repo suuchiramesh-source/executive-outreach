@@ -356,7 +356,7 @@ function getGmailAuth() {
 
 app.post('/api/create-draft', async (req, res) => {
   try {
-    const { to, subject, body } = req.body;
+    const { to, cc, subject, body } = req.body;
     if (!to || !subject || !body) {
       return res.status(400).json({ error: 'to, subject, and body are required' });
     }
@@ -365,14 +365,18 @@ app.post('/api/create-draft', async (req, res) => {
     const gmail = google.gmail({ version: 'v1', auth });
 
     // Build RFC 2822 email message
-    const rawMessage = [
+    const headers = [
       `From: Suuchi Ramesh <${SENDER_EMAIL}>`,
       `To: ${to}`,
+    ];
+    if (cc) headers.push(`Cc: ${cc}`);
+    headers.push(
       `Subject: ${subject}`,
       'Content-Type: text/plain; charset=utf-8',
       '',
       body,
-    ].join('\r\n');
+    );
+    const rawMessage = headers.join('\r\n');
 
     // Base64url encode
     const encoded = Buffer.from(rawMessage)

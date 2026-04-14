@@ -159,32 +159,67 @@ export default function VisitOutreach({ authFetch }) {
     const contacts = results.filter(r => selected.has(r.id));
     const withEmail = contacts.filter(c => c.email && !c.email.includes('*'));
     const noEmail = contacts.filter(c => !c.email || c.email.includes('*'));
+
+    console.log(`[BatchDraft] Starting: ${withEmail.length} with email, ${noEmail.length} without`);
     setDraftsProgress({ current: 0, total: withEmail.length });
     setDraftsSummary(null);
     setDraftErrors([]);
 
     let created = 0;
+    const errors = [];
+
     for (let i = 0; i < withEmail.length; i++) {
-      openGmailCompose(withEmail[i]);
-      created++;
+      const c = withEmail[i];
+      const subject = `Eric Vaughan is visiting — wanted to connect you both`;
+      const body = personalizeMessage(message, c);
+
+      console.log(`[BatchDraft] ${i + 1}/${withEmail.length}: Creating draft for ${c.name} (${c.email})`);
+
+      try {
+        const res = await authFetch('/api/create-draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: c.email,
+            cc: 'megan.anderson@ignitetech.ai',
+            subject,
+            body,
+          }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          created++;
+          console.log(`[BatchDraft] SUCCESS: ${c.name} → draftId=${data.draftId}`);
+        } else {
+          const errMsg = data.error || `HTTP ${res.status}`;
+          console.error(`[BatchDraft] FAILED: ${c.name} → ${errMsg}`);
+          errors.push({ name: c.name, email: c.email, error: errMsg });
+        }
+      } catch (err) {
+        console.error(`[BatchDraft] ERROR: ${c.name} →`, err);
+        errors.push({ name: c.name, email: c.email, error: err.message || 'Network error' });
+      }
+
       setDraftsProgress({ current: i + 1, total: withEmail.length });
-      // 500ms delay between each to avoid browser popup blocking
+
+      // 500ms delay between each draft
       if (i < withEmail.length - 1) {
         await new Promise(r => setTimeout(r, 500));
       }
     }
 
+    console.log(`[BatchDraft] Done: ${created} created, ${errors.length} failed, ${noEmail.length} skipped`);
     setDraftsProgress(null);
-    setDraftsSummary({
-      created,
-      skipped: noEmail.map(c => c.name),
-      failed: 0,
-    });
-    setDraftErrors(noEmail.map(c => ({
-      name: c.name,
-      email: '(none)',
-      error: 'No email address — Apollo reveal did not return an email for this contact',
-    })));
+    setDraftsSummary({ created, skipped: noEmail.map(c => c.name), failed: errors.length });
+    setDraftErrors([
+      ...errors,
+      ...noEmail.map(c => ({
+        name: c.name,
+        email: '(none)',
+        error: 'No email address — Apollo reveal did not return an email for this contact',
+      })),
+    ]);
   }
 
   return (
