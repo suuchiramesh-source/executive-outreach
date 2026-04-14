@@ -143,7 +143,7 @@ export default function VisitOutreach({ authFetch }) {
     return msg
       .replace(/\{FirstName\}/g, contact.name?.split(' ')[0] || '')
       .replace(/\{Company\}/g, contact.accountName || '')
-      .replace(/\{Product\}/g, contact.product || '')
+      .replace(/\{Product\}/g, (['Care','Community','Marketing'].includes(contact.product) ? 'Khoros ' : '') + (contact.product || ''))
       .replace(/\{Title\}/g, contact.title || '');
   }
 
