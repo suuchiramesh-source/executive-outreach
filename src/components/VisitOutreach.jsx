@@ -13,9 +13,9 @@ const TOKENS = ['{FirstName}', '{Company}', '{Product}', '{Title}'];
 
 const DEFAULT_MESSAGE = `Hi {FirstName},
 
-Our CEO, Eric Vaughan, will be in the London area for the next few weeks through early May — and given how important {Company} is to us, I didn't want this moment to pass without finding a way for both of you to connect.
+Our CEO, Eric Vaughan, will be in the London area for the next few weeks through early May — and given how important the {Company} relationship is to us, I didn't want this moment to pass without finding a way for both of you to connect.
 
-Eric is genuinely excited about where {Product} is heading and would love to express that in person — both in terms of our commitment to your partnership and the longer-term product vision we're building together.
+Eric is excited about where {Product} is heading and would love to express that in person — both in terms of our commitment to your partnership and the longer-term product vision we're building together.
 
 Would there be a window in the coming weeks where we could bring you and Eric together, even briefly? We're flexible and happy to work around your schedule.
 
