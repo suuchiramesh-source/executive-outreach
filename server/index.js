@@ -296,33 +296,41 @@ app.post('/api/check-sent', async (req, res) => {
   if (!emails || !Array.isArray(emails) || emails.length === 0) {
     return res.json({ results: {} });
   }
+  console.log(`[CheckSent] Checking ${emails.length} emails`);
+  let gmail;
   try {
     const auth = getGmailAuth();
-    const gmail = google.gmail({ version: 'v1', auth });
-    const results = {};
-    const BATCH = 5;
-    for (let i = 0; i < emails.length; i += BATCH) {
-      const batch = emails.slice(i, i + BATCH);
-      const batchResults = await Promise.all(
-        batch.map(async (email) => {
-          try {
-            const resp = await gmail.users.messages.list({ userId: 'me', q: `in:sent to:${email}`, maxResults: 1 });
-            const messages = resp.data.messages || [];
-            if (messages.length === 0) return { email, sent: false };
-            const msg = await gmail.users.messages.get({ userId: 'me', id: messages[0].id, format: 'metadata', metadataHeaders: ['Date'] });
-            const dateHeader = msg.data.payload?.headers?.find(h => h.name === 'Date');
-            const lastDate = dateHeader ? new Date(dateHeader.value).toISOString().split('T')[0] : null;
-            return { email, sent: true, lastDate };
-          } catch { return { email, sent: false }; }
-        })
-      );
-      for (const r of batchResults) results[r.email] = { sent: r.sent, lastDate: r.lastDate || null };
-    }
-    res.json({ results });
+    gmail = google.gmail({ version: 'v1', auth });
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    console.log(`[CheckSent] Auth OK — as: ${profile.data.emailAddress}`);
   } catch (err) {
-    console.error('[CheckSent] Gmail auth error:', err.message);
-    res.json({ results: {}, error: err.message });
+    console.error(`[CheckSent] Auth FAILED: ${err.message}`);
+    return res.json({ results: {}, authError: err.message });
   }
+  const results = {};
+  for (let i = 0; i < emails.length; i += 5) {
+    const batch = emails.slice(i, i + 5);
+    const batchResults = await Promise.all(batch.map(async (email) => {
+      const q = `to:${email} in:sent`;
+      try {
+        console.log(`[CheckSent] Query: "${q}"`);
+        const resp = await gmail.users.messages.list({ userId: 'me', q, maxResults: 1 });
+        const messages = resp.data.messages || [];
+        console.log(`[CheckSent] "${q}" → ${messages.length} messages`);
+        if (messages.length === 0) return { email, sent: false };
+        const msg = await gmail.users.messages.get({ userId: 'me', id: messages[0].id, format: 'metadata', metadataHeaders: ['Date'] });
+        const dateHeader = msg.data.payload?.headers?.find(h => h.name === 'Date');
+        const lastDate = dateHeader ? new Date(dateHeader.value).toISOString().split('T')[0] : null;
+        console.log(`[CheckSent] FOUND: ${email} — ${lastDate}`);
+        return { email, sent: true, lastDate };
+      } catch (err) {
+        console.warn(`[CheckSent] Error for ${email}: ${err.message}`);
+        return { email, sent: false };
+      }
+    }));
+    for (const r of batchResults) results[r.email] = { sent: r.sent, lastDate: r.lastDate || null };
+  }
+  res.json({ results });
 });
 
 // ── Hunter.io email verification ───────────────────────────────────

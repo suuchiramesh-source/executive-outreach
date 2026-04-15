@@ -1,7 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-
-// eslint-disable-next-line no-undef
-const GCLIENT_ID = typeof __GOOGLE_CLIENT_ID__ !== 'undefined' ? __GOOGLE_CLIENT_ID__ : '';
+import React, { useState, useEffect, useRef } from 'react';
 
 const ALL_PRODUCTS = ['Khoros', 'Jive', 'Gensym', 'Computron', 'DNN'];
 const ARR_OPTIONS = [
@@ -126,89 +123,47 @@ export default function VisitOutreach({ authFetch }) {
     setSearched(true);
   }
 
-  // Gmail OAuth token for sent-check (browser-based, no server needed)
-  const [gmailToken, setGmailToken] = useState(null);
-  const [gmailAuthNeeded, setGmailAuthNeeded] = useState(false);
-  const tokenClientRef = useRef(null);
+  const [sentAuthError, setSentAuthError] = useState(null);
 
-  const runSentCheck = useCallback(async (token, emails) => {
-    setCheckingSent(true);
-    const unchecked = emails.filter(e => !sentCacheRef.current[e]);
-    if (unchecked.length === 0) {
-      setSentStatus({ ...sentCacheRef.current });
-      setCheckingSent(false);
-      return;
-    }
-    console.log(`[CheckSent] Checking ${unchecked.length} emails via Gmail API`);
-    for (let i = 0; i < unchecked.length; i += 5) {
-      const batch = unchecked.slice(i, i + 5);
-      const batchResults = await Promise.all(batch.map(async (email) => {
-        try {
-          const resp = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(`in:sent to:${email}`)}&maxResults=1`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (!resp.ok) {
-            console.warn(`[CheckSent] Gmail API error for ${email}: ${resp.status}`);
-            return { email, sent: false };
-          }
-          const data = await resp.json();
-          if (data.messages?.length > 0) {
-            const msgResp = await fetch(
-              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${data.messages[0].id}?format=metadata&metadataHeaders=Date`,
-              { headers: { Authorization: `Bearer ${token}` } }
-            );
-            const msg = await msgResp.json();
-            const dateHeader = msg.payload?.headers?.find(h => h.name === 'Date');
-            const lastDate = dateHeader ? new Date(dateHeader.value).toISOString().split('T')[0] : null;
-            console.log(`[CheckSent] FOUND: ${email} — last sent ${lastDate}`);
-            return { email, sent: true, lastDate };
-          }
-          return { email, sent: false };
-        } catch (err) {
-          console.warn(`[CheckSent] Error for ${email}:`, err);
-          return { email, sent: false };
-        }
-      }));
-      for (const r of batchResults) {
-        sentCacheRef.current[r.email] = { sent: r.sent, lastDate: r.lastDate || null };
-      }
-      setSentStatus({ ...sentCacheRef.current });
-    }
-    console.log(`[CheckSent] Done. Found sent: ${Object.values(sentCacheRef.current).filter(v => v.sent).length}`);
-    setCheckingSent(false);
-  }, []);
-
-  // After results load, auto-check if we have a token, otherwise prompt
+  // After results load, check sent history via server endpoint
   useEffect(() => {
     if (!searched || results.length === 0) return;
-    const emails = results.map(c => c.email).filter(e => e && !e.includes('*'));
-    if (emails.length === 0) return;
-
-    if (gmailToken) {
-      runSentCheck(gmailToken, emails);
-    } else if (GCLIENT_ID) {
-      setGmailAuthNeeded(true);
+    const emails = results
+      .map(c => c.email)
+      .filter(e => e && !e.includes('*') && !sentCacheRef.current[e]);
+    if (emails.length === 0) {
+      setSentStatus({ ...sentCacheRef.current });
+      return;
     }
-  }, [searched, results, gmailToken, runSentCheck]);
-
-  function handleAuthorizeGmail() {
-    if (!window.google?.accounts?.oauth2) return;
-    if (!tokenClientRef.current) {
-      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-        client_id: GCLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/gmail.readonly',
-        callback: (response) => {
-          if (response.access_token) {
-            console.log('[CheckSent] Gmail access token obtained');
-            setGmailToken(response.access_token);
-            setGmailAuthNeeded(false);
-          }
-        },
-      });
-    }
-    tokenClientRef.current.requestAccessToken();
-  }
+    setCheckingSent(true);
+    setSentAuthError(null);
+    console.log(`[CheckSent] Requesting sent check for ${emails.length} emails`);
+    authFetch('/api/check-sent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        console.log('[CheckSent] Response:', data);
+        if (data.authError) {
+          console.error('[CheckSent] Auth error:', data.authError);
+          setSentAuthError(data.authError);
+        }
+        if (data.results) {
+          const merged = { ...sentCacheRef.current, ...data.results };
+          sentCacheRef.current = merged;
+          setSentStatus(merged);
+          const found = Object.values(data.results).filter(v => v.sent).length;
+          console.log(`[CheckSent] ${found}/${emails.length} previously emailed`);
+        }
+      })
+      .catch(err => {
+        console.error('[CheckSent] Fetch error:', err);
+        setSentAuthError(err.message);
+      })
+      .finally(() => setCheckingSent(false));
+  }, [searched, results]);
 
   // Filter results by "hide previously contacted"
   const displayResults = hidePreviouslyContacted
@@ -412,22 +367,12 @@ export default function VisitOutreach({ authFetch }) {
               </div>
             </div>
 
-            {gmailAuthNeeded && !gmailToken && (
+            {sentAuthError && (
               <div style={{
                 marginBottom: 12, padding: '10px 14px', background: 'var(--amber-bg)',
-                borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13,
+                borderRadius: 8, fontSize: 12, color: 'var(--amber)',
               }}>
-                <span style={{ color: 'var(--amber)' }}>Authorize Gmail access to check sent history</span>
-                <button
-                  onClick={handleAuthorizeGmail}
-                  style={{
-                    padding: '4px 12px', borderRadius: 6, border: '1px solid var(--amber)',
-                    background: 'var(--white)', fontSize: 12, fontWeight: 600,
-                    cursor: 'pointer', color: 'var(--amber)', whiteSpace: 'nowrap',
-                  }}
-                >
-                  Connect Gmail
-                </button>
+                Sent history check unavailable: {sentAuthError}
               </div>
             )}
 
