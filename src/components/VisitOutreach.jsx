@@ -14,9 +14,11 @@ const ARR_OPTIONS = [
 ];
 const TOKENS = ['{FirstName}', '{Company}', '{Product}', '{Title}'];
 
-const DEFAULT_MESSAGE = `Hi {FirstName},
+function buildDefaultMessage(city) {
+  const c = city || 'your area';
+  return `Hi {FirstName},
 
-Our CEO, Eric Vaughan, will be in the London area for the next few weeks through early May — and given how important the {Company} relationship is to us, I didn't want this moment to pass without finding a way for both of you to connect.
+Our CEO, Eric Vaughan, will be in the ${c} area for the next few weeks through early May — and given how important the {Company} relationship is to us, I didn't want this moment to pass without finding a way for both of you to connect.
 
 Eric is excited about where {Product} is heading and would love to express that in person — both in terms of our commitment to your partnership and the longer-term product vision we're building together.
 
@@ -27,6 +29,7 @@ Looking forward to it.
 Warm regards,
 Suuchi Ramesh
 Chief Commercial Officer, IgniteTech / Khoros`;
+}
 
 function formatARR(value) {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -38,7 +41,9 @@ export default function VisitOutreach({ authFetch }) {
   const [location, setLocation] = useState('');
   const [selectedProducts, setSelectedProducts] = useState(new Set(ALL_PRODUCTS));
   const [minARR, setMinARR] = useState(0);
-  const [message, setMessage] = useState(DEFAULT_MESSAGE);
+  const [message, setMessage] = useState(() => buildDefaultMessage(''));
+  const [messageEdited, setMessageEdited] = useState(false);
+  const prevLocationRef = useRef('');
   const [includeSecondary, setIncludeSecondary] = useState(false);
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(new Set());
@@ -47,6 +52,16 @@ export default function VisitOutreach({ authFetch }) {
   const [searched, setSearched] = useState(false);
   const [draftQueue, setDraftQueue] = useState(null);
   const [draftsSummary, setDraftsSummary] = useState(null);
+
+  // Auto-update message template when location changes (unless user manually edited)
+  useEffect(() => {
+    if (messageEdited) return;
+    const capitalized = location.trim().replace(/\b\w/g, c => c.toUpperCase());
+    if (capitalized !== prevLocationRef.current) {
+      prevLocationRef.current = capitalized;
+      setMessage(buildDefaultMessage(capitalized));
+    }
+  }, [location, messageEdited]);
   const [sentStatus, setSentStatus] = useState({}); // { email: { sent, lastDate } } — cached across filter changes
   const [checkingSent, setCheckingSent] = useState(false);
   const [hidePreviouslyContacted, setHidePreviouslyContacted] = useState(false);
@@ -225,7 +240,8 @@ export default function VisitOutreach({ authFetch }) {
   }
 
   function openGmailCompose(contact) {
-    const subject = `Eric Vaughan is visiting — wanted to connect you both`;
+    const city = location.trim().replace(/\b\w/g, c => c.toUpperCase()) || 'your area';
+    const subject = `Eric Vaughan is visiting ${city} — wanted to connect you both`;
     const body = personalizeMessage(message, contact);
     const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(contact.email || '')}&cc=${encodeURIComponent('megan.anderson@ignitetech.ai')}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(url, '_blank');
@@ -337,7 +353,7 @@ export default function VisitOutreach({ authFetch }) {
         </div>
         <textarea
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => { setMessage(e.target.value); setMessageEdited(true); }}
           rows={10}
           style={{
             width: '100%', padding: 12, borderRadius: 6,
